@@ -34,7 +34,7 @@ export const issueInvite = mutation({
     if (!config) return berr('AUTH_FAILED');
     const presentedKey =
       typeof (request as { admin_key?: unknown })?.admin_key === 'string'
-        ? ((request as { admin_key: string }).admin_key)
+        ? (request as { admin_key: string }).admin_key
         : '';
     const presentedHash = await sha256Hex(presentedKey);
     if (!constantTimeEqual(presentedHash, config.admin_key_sha256)) {

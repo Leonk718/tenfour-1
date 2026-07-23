@@ -13,7 +13,11 @@ import { resolveThreadId } from './accept.ts';
 import { out, json, printBrokerError, type GlobalFlags } from '../output.ts';
 import { EXIT } from '../exit-codes.ts';
 
-export async function runInbox(argv: string[], ctx: CliContext, flags: GlobalFlags): Promise<number> {
+export async function runInbox(
+  argv: string[],
+  ctx: CliContext,
+  flags: GlobalFlags,
+): Promise<number> {
   const threadIdx = argv.indexOf('--thread');
   const threadArg = threadIdx >= 0 ? argv[threadIdx + 1] : undefined;
   const all = argv.includes('--all');
@@ -31,8 +35,23 @@ export async function runInbox(argv: string[], ctx: CliContext, flags: GlobalFla
     const last = tr.messages[tr.messages.length - 1];
     if (!last) throw new LocalError(`thread ${shortThreadId(threadId)} has no messages`);
     journal.ensure();
-    journal.appendInbound({ at: Date.now(), message_id: last.id, attempt_id: 'resurface', state: 'received' });
-    const view = { message: last, thread: { thread_id: tr.thread.thread_id, root_kind: tr.thread.root_kind, status: tr.thread.status, round: tr.thread.round, max_rounds: tr.thread.max_rounds, repo: tr.thread.repo } };
+    journal.appendInbound({
+      at: Date.now(),
+      message_id: last.id,
+      attempt_id: 'resurface',
+      state: 'received',
+    });
+    const view = {
+      message: last,
+      thread: {
+        thread_id: tr.thread.thread_id,
+        root_kind: tr.thread.root_kind,
+        status: tr.thread.status,
+        round: tr.thread.round,
+        max_rounds: tr.thread.max_rounds,
+        repo: tr.thread.repo,
+      },
+    };
     if (flags.json) {
       json({ thread_id: threadId, message: last });
       return EXIT.OK;
@@ -56,7 +75,9 @@ export async function runInbox(argv: string[], ctx: CliContext, flags: GlobalFla
     return EXIT.OK;
   }
   for (const i of items) {
-    out(`[${i.message.kind}] from ${i.message.from} | thread ${shortThreadId(i.message.thread_id)} | ${ageString(i.message.ts)} | ${i.thread.repo ?? '-'} : ${summarize(i.message.body, 60)}`);
+    out(
+      `[${i.message.kind}] from ${i.message.from} | thread ${shortThreadId(i.message.thread_id)} | ${ageString(i.message.ts)} | ${i.thread.repo ?? '-'} : ${summarize(i.message.body, 60)}`,
+    );
   }
   return EXIT.OK;
 }

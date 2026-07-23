@@ -13,7 +13,11 @@ import { LocalError, type CliContext } from '../context.ts';
 import { out, err, type GlobalFlags } from '../output.ts';
 import { EXIT } from '../exit-codes.ts';
 
-export async function runToken(argv: string[], ctx: CliContext, flags: GlobalFlags): Promise<number> {
+export async function runToken(
+  argv: string[],
+  ctx: CliContext,
+  flags: GlobalFlags,
+): Promise<number> {
   const sub = argv.find((a) => !a.startsWith('--'));
   if (sub === 'revoke') return runRevoke(argv, ctx, flags);
   if (sub === 'rotate') return runRotate(ctx);

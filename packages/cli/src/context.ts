@@ -5,7 +5,13 @@
 
 import * as fs from 'node:fs';
 import { BrokerClient, type ClientInfo } from '../../adapter/src/client.ts';
-import { loadConfig, loadCredentials, loadAdmin, type Credentials, type Admin } from '../../adapter/src/local-config.ts';
+import {
+  loadConfig,
+  loadCredentials,
+  loadAdmin,
+  type Credentials,
+  type Admin,
+} from '../../adapter/src/local-config.ts';
 import { tenfourPaths, type TenfourPaths } from '../../adapter/src/paths.ts';
 import type { TenfourConfig } from '../../schema/src/config.ts';
 import type { Platform } from '../../schema/src/protocol.ts';
@@ -51,7 +57,8 @@ export function detectPlatform(env: NodeJS.ProcessEnv = process.env): Platform {
   if (process.platform === 'darwin') return 'darwin';
   if (process.platform === 'linux') {
     try {
-      if (fs.readFileSync('/proc/version', 'utf8').toLowerCase().includes('microsoft')) return 'wsl';
+      if (fs.readFileSync('/proc/version', 'utf8').toLowerCase().includes('microsoft'))
+        return 'wsl';
     } catch {
       /* not WSL */
     }

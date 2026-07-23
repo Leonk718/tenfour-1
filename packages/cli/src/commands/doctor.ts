@@ -34,7 +34,17 @@ export interface CheckResult {
   detail: string;
   fix_applied?: boolean;
 }
-const R = (check_id: string, status: CheckStatus, detail: string, fix_applied?: boolean): CheckResult => ({ check_id, status, detail, ...(fix_applied !== undefined ? { fix_applied } : {}) });
+const R = (
+  check_id: string,
+  status: CheckStatus,
+  detail: string,
+  fix_applied?: boolean,
+): CheckResult => ({
+  check_id,
+  status,
+  detail,
+  ...(fix_applied !== undefined ? { fix_applied } : {}),
+});
 
 const MIN_NODE_MAJOR = 20;
 
@@ -48,7 +58,11 @@ export function checkConfigParse(home?: string, env: NodeJS.ProcessEnv = process
   return R('config-parse', 'PASS', `config + credentials valid (agent ${creds.value.agent})`);
 }
 
-export function checkCredentialsPerms(paths: { credentialsJson: string; configJson: string; adminJson: string }, platform: NodeJS.Platform = process.platform, fix = false): CheckResult {
+export function checkCredentialsPerms(
+  paths: { credentialsJson: string; configJson: string; adminJson: string },
+  platform: NodeJS.Platform = process.platform,
+  fix = false,
+): CheckResult {
   const targets = [paths.credentialsJson, paths.configJson];
   if (fs.existsSync(paths.adminJson)) targets.push(paths.adminJson);
   const present = targets.filter((f) => fs.existsSync(f));
@@ -66,7 +80,9 @@ export function checkCredentialsPerms(paths: { credentialsJson: string; configJs
     }
     if (!res.ok) bad.push(`${path.basename(f)}: ${res.detail}`);
   }
-  return bad.length === 0 ? R('credentials-perms', 'PASS', 'sole-user access', fix || undefined) : R('credentials-perms', 'FAIL', bad.join('; '), fix ? true : undefined);
+  return bad.length === 0
+    ? R('credentials-perms', 'PASS', 'sole-user access', fix || undefined)
+    : R('credentials-perms', 'FAIL', bad.join('; '), fix ? true : undefined);
 }
 
 export function checkNodeRuntime(): CheckResult {
@@ -74,20 +90,33 @@ export function checkNodeRuntime(): CheckResult {
   if (res.status !== 0) return R('node-runtime', 'FAIL', 'node not resolvable on PATH');
   const m = /v(\d+)\./.exec((res.stdout ?? '').trim());
   const major = m ? Number(m[1]) : 0;
-  return major >= MIN_NODE_MAJOR ? R('node-runtime', 'PASS', `node ${res.stdout.trim()}`) : R('node-runtime', 'FAIL', `node ${res.stdout.trim()} < v${MIN_NODE_MAJOR}`);
+  return major >= MIN_NODE_MAJOR
+    ? R('node-runtime', 'PASS', `node ${res.stdout.trim()}`)
+    : R('node-runtime', 'FAIL', `node ${res.stdout.trim()} < v${MIN_NODE_MAJOR}`);
 }
 
-export function checkEnvironmentPath(paths: { home: string }, env: NodeJS.ProcessEnv = process.env): CheckResult {
+export function checkEnvironmentPath(
+  paths: { home: string },
+  env: NodeJS.ProcessEnv = process.env,
+): CheckResult {
   const finder = process.platform === 'win32' ? 'where' : 'which';
   const claude = spawnSync(finder, ['claude'], { encoding: 'utf8' });
   const npm = spawnSync(finder, ['npm'], { encoding: 'utf8' });
   const claudeOk = claude.status === 0;
   const npmOk = npm.status === 0;
   const warnings: string[] = [];
-  if (paths.home.includes('/mnt/')) warnings.push('TENFOUR_HOME on a drvfs mount (WSL) — journal fsync semantics differ');
-  if (/OneDrive/i.test(claudeSettingsPath(env))) warnings.push('~/.claude appears OneDrive-synced — journal/settings churn risk');
-  if (!claudeOk && !npmOk) return R('environment-path', 'WARN', 'neither claude nor npm found on PATH');
-  if (claudeOk !== npmOk) return R('environment-path', 'FAIL', `split resolution: claude=${claudeOk} npm=${npmOk} (WSL interop trap)`);
+  if (paths.home.includes('/mnt/'))
+    warnings.push('TENFOUR_HOME on a drvfs mount (WSL) — journal fsync semantics differ');
+  if (/OneDrive/i.test(claudeSettingsPath(env)))
+    warnings.push('~/.claude appears OneDrive-synced — journal/settings churn risk');
+  if (!claudeOk && !npmOk)
+    return R('environment-path', 'WARN', 'neither claude nor npm found on PATH');
+  if (claudeOk !== npmOk)
+    return R(
+      'environment-path',
+      'FAIL',
+      `split resolution: claude=${claudeOk} npm=${npmOk} (WSL interop trap)`,
+    );
   if (warnings.length) return R('environment-path', 'WARN', warnings.join('; '));
   return R('environment-path', 'PASS', 'claude + npm resolve on the same side');
 }
@@ -101,7 +130,8 @@ export interface PingProbe {
 }
 
 export function checkBrokerReach(probe: PingProbe): CheckResult {
-  if (!probe.ok) return R('broker-reach', 'FAIL', `broker unreachable: ${probe.error ?? 'no response'}`);
+  if (!probe.ok)
+    return R('broker-reach', 'FAIL', `broker unreachable: ${probe.error ?? 'no response'}`);
   return R('broker-reach', 'PASS', `diag.ping ok (rtt ${probe.rtt_ms}ms)`);
 }
 
@@ -111,22 +141,33 @@ export function checkAuthValid(probe: PingProbe, expectedAgent: string | undefin
     return R('auth-valid', 'FAIL', `authentication failed (${code}) — re-pair with tenfour join`);
   }
   const agent = probe.response.agent;
-  if (expectedAgent && agent !== expectedAgent) return R('auth-valid', 'FAIL', `broker sees agent ${agent}, config says ${expectedAgent}`);
+  if (expectedAgent && agent !== expectedAgent)
+    return R('auth-valid', 'FAIL', `broker sees agent ${agent}, config says ${expectedAgent}`);
   return R('auth-valid', 'PASS', `authenticated as ${agent}`);
 }
 
 export function checkClockSkew(probe: PingProbe): CheckResult {
-  if (!probe.ok || !probe.response || !probe.response.ok) return R('clock-skew', 'WARN', 'skipped — broker unreachable');
+  if (!probe.ok || !probe.response || !probe.response.ok)
+    return R('clock-skew', 'WARN', 'skipped — broker unreachable');
   const localMid = probe.local_ts + probe.rtt_ms / 2;
   const skew = Math.abs(probe.response.server_time - localMid);
   if (skew <= 30_000) return R('clock-skew', 'PASS', `skew ${Math.round(skew)}ms`);
-  if (skew <= 300_000) return R('clock-skew', 'WARN', `skew ${Math.round(skew / 1000)}s (display timestamps only)`);
+  if (skew <= 300_000)
+    return R('clock-skew', 'WARN', `skew ${Math.round(skew / 1000)}s (display timestamps only)`);
   return R('clock-skew', 'FAIL', `skew ${Math.round(skew / 1000)}s > 300s`);
 }
 
-export function checkHooksExecute(hookEntryAbs: string, env: NodeJS.ProcessEnv = process.env): CheckResult {
+export function checkHooksExecute(
+  hookEntryAbs: string,
+  env: NodeJS.ProcessEnv = process.env,
+): CheckResult {
   const settingsFile = claudeSettingsPath(env);
-  if (!fs.existsSync(settingsFile)) return R('hooks-execute', 'FAIL', 'not installed — no ~/.claude/settings.json (run tenfour init)');
+  if (!fs.existsSync(settingsFile))
+    return R(
+      'hooks-execute',
+      'FAIL',
+      'not installed — no ~/.claude/settings.json (run tenfour init)',
+    );
   let settings: { hooks?: Record<string, Array<{ hooks?: Array<{ command?: string }> }>> };
   try {
     settings = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
@@ -134,16 +175,34 @@ export function checkHooksExecute(hookEntryAbs: string, env: NodeJS.ProcessEnv =
     return R('hooks-execute', 'FAIL', `settings.json unparseable: ${(e as Error).message}`);
   }
   const events = ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop'];
-  const eventArg: Record<string, string> = { SessionStart: 'session-start', UserPromptSubmit: 'user-prompt-submit', PostToolUse: 'post-tool-use', Stop: 'stop' };
+  const eventArg: Record<string, string> = {
+    SessionStart: 'session-start',
+    UserPromptSubmit: 'user-prompt-submit',
+    PostToolUse: 'post-tool-use',
+    Stop: 'stop',
+  };
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tenfour-doctor-'));
   try {
     for (const event of events) {
       const entries = settings.hooks?.[event] ?? [];
-      const cmd = entries.flatMap((e) => e.hooks ?? []).map((h) => h.command).find((c) => typeof c === 'string' && c.includes(HOOK_SENTINEL));
+      const cmd = entries
+        .flatMap((e) => e.hooks ?? [])
+        .map((h) => h.command)
+        .find((c) => typeof c === 'string' && c.includes(HOOK_SENTINEL));
       if (!cmd) return R('hooks-execute', 'FAIL', `${event}: tenfour sentinel entry not installed`);
-      const res = spawnSync(cmd, { shell: true, encoding: 'utf8', env: { ...env, TENFOUR_DOCTOR: '1', TENFOUR_JOURNAL_DIR: path.join(tmp, event) } });
-      if (res.status !== 0) return R('hooks-execute', 'FAIL', `${event}: spawn failed (${res.status}) ${(res.stderr ?? '').slice(0, 120)}`);
-      if (!/"tenfour_doctor"\s*:\s*"ok"/.test(res.stdout ?? '')) return R('hooks-execute', 'FAIL', `${event}: no {"tenfour_doctor":"ok"} on stdout`);
+      const res = spawnSync(cmd, {
+        shell: true,
+        encoding: 'utf8',
+        env: { ...env, TENFOUR_DOCTOR: '1', TENFOUR_JOURNAL_DIR: path.join(tmp, event) },
+      });
+      if (res.status !== 0)
+        return R(
+          'hooks-execute',
+          'FAIL',
+          `${event}: spawn failed (${res.status}) ${(res.stderr ?? '').slice(0, 120)}`,
+        );
+      if (!/"tenfour_doctor"\s*:\s*"ok"/.test(res.stdout ?? ''))
+        return R('hooks-execute', 'FAIL', `${event}: no {"tenfour_doctor":"ok"} on stdout`);
     }
     void hookEntryAbs;
     return R('hooks-execute', 'PASS', '4/4 hooks fire and report ok');
@@ -162,12 +221,17 @@ export function checkGateRules(workspaces: readonly string[]): CheckResult {
     const f = path.join(w, '.claude', 'settings.json');
     if (!fs.existsSync(f)) return true;
     try {
-      return (JSON.parse(fs.readFileSync(f, 'utf8')) as Record<string, unknown>)._tenfour_gate_rules === undefined;
+      return (
+        (JSON.parse(fs.readFileSync(f, 'utf8')) as Record<string, unknown>)._tenfour_gate_rules ===
+        undefined
+      );
     } catch {
       return true;
     }
   });
-  return missing.length === 0 ? R('gate-rules', 'PASS', `${workspaces.length} workspace(s) carry gate rules`) : R('gate-rules', 'FAIL', `missing gate rules: ${missing.join(', ')}`);
+  return missing.length === 0
+    ? R('gate-rules', 'PASS', `${workspaces.length} workspace(s) carry gate rules`)
+    : R('gate-rules', 'FAIL', `missing gate rules: ${missing.join(', ')}`);
 }
 
 export function checkJournalIntegrity(journalDir: string): CheckResult {
@@ -183,7 +247,11 @@ export function checkJournalIntegrity(journalDir: string): CheckResult {
     j.readInbound(); // parse scan; torn lines are skipped, not fatal
     return R('journal-integrity', 'PASS', 'journal readable + fsync-able');
   } catch (e) {
-    return R('journal-integrity', 'FAIL', `journal probe failed: ${(e as Error).message} (dashboard hand-edit or cloud-sync restore?)`);
+    return R(
+      'journal-integrity',
+      'FAIL',
+      `journal probe failed: ${(e as Error).message} (dashboard hand-edit or cloud-sync restore?)`,
+    );
   }
 }
 
@@ -196,39 +264,66 @@ export function checkRepoMap(workspaces: readonly string[]): CheckResult {
       bad.push(`${w}: not a git checkout`);
       continue;
     }
-    const head = spawnSync('git', ['-C', w, 'cat-file', '-e', 'HEAD^{commit}'], { encoding: 'utf8' });
+    const head = spawnSync('git', ['-C', w, 'cat-file', '-e', 'HEAD^{commit}'], {
+      encoding: 'utf8',
+    });
     if (head.status !== 0) bad.push(`${w}: no HEAD commit`);
     const origin = spawnSync('git', ['-C', w, 'remote', 'get-url', 'origin'], { encoding: 'utf8' });
     if (origin.status !== 0) bad.push(`${w}: no origin remote (repo_id underivable)`);
   }
-  return bad.length === 0 ? R('repo-map', 'PASS', `${workspaces.length} workspace(s) usable`) : R('repo-map', 'FAIL', bad.join('; '));
+  return bad.length === 0
+    ? R('repo-map', 'PASS', `${workspaces.length} workspace(s) usable`)
+    : R('repo-map', 'FAIL', bad.join('; '));
 }
 
 export function checkNotifyToast(platform: NodeJS.Platform = process.platform): CheckResult {
   const res = notify('tenfour', 'test toast dispatched', platform);
   return res.dispatched
-    ? R('notify-toast', 'PASS', 'test toast dispatched (if you didn’t see it, check Focus Assist / notification settings)')
+    ? R(
+        'notify-toast',
+        'PASS',
+        'test toast dispatched (if you didn’t see it, check Focus Assist / notification settings)',
+      )
     : R('notify-toast', 'FAIL', `toast dispatch errored: ${res.detail}`);
 }
 
 export async function checkConsentSurface(): Promise<CheckResult> {
   const expected = ['tenfour_send', 'tenfour_ack', 'tenfour_thread', 'tenfour_wait'];
   const served = [...TOOL_NAMES];
-  const exact = served.length === expected.length && expected.every((t) => served.includes(t as (typeof TOOL_NAMES)[number]));
-  if (!exact) return R('consent-surface', 'FAIL', `served MCP tools are not exactly the four: ${served.join(', ')}`);
+  const exact =
+    served.length === expected.length &&
+    expected.every((t) => served.includes(t as (typeof TOOL_NAMES)[number]));
+  if (!exact)
+    return R(
+      'consent-surface',
+      'FAIL',
+      `served MCP tools are not exactly the four: ${served.join(', ')}`,
+    );
   // Verify tenfour_send rejects kind:accepted locally (MCP-010) — no network needed.
   const stub: ToolDeps = {
     agent: 'x/y',
     client: { thread: async () => ({ ok: false }) } as unknown as ToolDeps['client'],
   };
-  const res = await handleSend(stub, { to: 'a/b', kind: 'accepted', thread_id: '01J1PAVH5N40E3D8QT2W9YRKM3', body: '' });
+  const res = await handleSend(stub, {
+    to: 'a/b',
+    kind: 'accepted',
+    thread_id: '01J1PAVH5N40E3D8QT2W9YRKM3',
+    body: '',
+  });
   if (res.status !== 'error' || res.code !== 'TENFOUR/CONSENT_REQUIRED') {
-    return R('consent-surface', 'FAIL', 'tenfour_send did not reject kind:accepted (F-3 release blocker)');
+    return R(
+      'consent-surface',
+      'FAIL',
+      'tenfour_send did not reject kind:accepted (F-3 release blocker)',
+    );
   }
   return R('consent-surface', 'PASS', 'exactly four tools; tenfour_send rejects kind:accepted');
 }
 
-export function checkWorkspaceTagged(allowedRepos: readonly string[], workspaces: readonly string[]): CheckResult {
+export function checkWorkspaceTagged(
+  allowedRepos: readonly string[],
+  workspaces: readonly string[],
+): CheckResult {
   // Derive each workspace's repo-id from its origin remote (ART-081).
   const tagged = new Set<string>();
   for (const w of workspaces) {
@@ -239,8 +334,13 @@ export function checkWorkspaceTagged(allowedRepos: readonly string[], workspaces
     }
   }
   const untagged = allowedRepos.filter((r) => !tagged.has(r));
-  if (untagged.length === 0) return R('workspace-tagged', 'PASS', 'all allowlisted repos are tagged workspaces');
-  return R('workspace-tagged', 'WARN', `untagged target repo(s): ${untagged.join(', ')} — run tenfour init --workspace there`);
+  if (untagged.length === 0)
+    return R('workspace-tagged', 'PASS', 'all allowlisted repos are tagged workspaces');
+  return R(
+    'workspace-tagged',
+    'WARN',
+    `untagged target repo(s): ${untagged.join(', ')} — run tenfour init --workspace there`,
+  );
 }
 
 /** Best-effort host/owner/name repo-id from a git remote URL (ARTIFACTS §2.1). */
@@ -260,7 +360,11 @@ export function summarizeExit(results: readonly CheckResult[]): number {
   return DOCTOR_EXIT.ALL_PASS;
 }
 
-export async function runDoctor(argv: string[], ctx: CliContext, flags: GlobalFlags): Promise<number> {
+export async function runDoctor(
+  argv: string[],
+  ctx: CliContext,
+  flags: GlobalFlags,
+): Promise<number> {
   const fix = argv.includes('--fix');
   const strict = argv.includes('--strict');
   const env = process.env;
@@ -297,7 +401,8 @@ export async function runDoctor(argv: string[], ctx: CliContext, flags: GlobalFl
 }
 
 async function probePing(ctx: CliContext): Promise<PingProbe> {
-  if (!ctx.config || !ctx.credentials) return { ok: false, rtt_ms: 0, local_ts: Date.now(), error: 'no config/credentials' };
+  if (!ctx.config || !ctx.credentials)
+    return { ok: false, rtt_ms: 0, local_ts: Date.now(), error: 'no config/credentials' };
   const client = new BrokerClient({ url: ctx.config.broker_url, token: ctx.credentials.token });
   const t0 = Date.now();
   try {

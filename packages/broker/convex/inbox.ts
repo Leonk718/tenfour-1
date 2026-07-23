@@ -8,12 +8,7 @@ import { mutation } from './_generated/server';
 import { v } from 'convex/values';
 import { InboxRequestSchema, LIMITS } from '../../schema/src/protocol.ts';
 import { ulid } from './lib/ids.ts';
-import {
-  authenticate,
-  berr,
-  assembleStamped,
-  assembleInboxThreadInfo,
-} from './lib/core.ts';
+import { authenticate, berr, assembleStamped, assembleInboxThreadInfo } from './lib/core.ts';
 
 export const inbox = mutation({
   args: { request: v.any() },
@@ -35,9 +30,7 @@ export const inbox = mutation({
     // DEL-33: every unacked row is returned; the cursor bounds the scan, not the set.
     const rows = await ctx.db
       .query('messages')
-      .withIndex('by_recipient_inbox', (q) =>
-        q.eq('recipient', agent).gt('inbox_seq', cursorStart),
-      )
+      .withIndex('by_recipient_inbox', (q) => q.eq('recipient', agent).gt('inbox_seq', cursorStart))
       .order('asc')
       .collect();
     const deliverable = rows.filter((r) => r.delivery_state !== 'acked');
@@ -85,7 +78,8 @@ export const inbox = mutation({
       });
     }
 
-    const cursorOut = page.length > 0 ? String(page[page.length - 1].inbox_seq) : String(cursorStart);
+    const cursorOut =
+      page.length > 0 ? String(page[page.length - 1].inbox_seq) : String(cursorStart);
     return { ok: true, items, cursor: cursorOut, has_more, server_time: now };
   },
 });

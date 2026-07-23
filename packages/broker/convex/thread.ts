@@ -5,13 +5,7 @@
 import { query } from './_generated/server';
 import { v } from 'convex/values';
 import { ThreadRequestSchema } from '../../schema/src/protocol.ts';
-import {
-  authenticate,
-  berr,
-  assembleThread,
-  assembleStamped,
-  shortId,
-} from './lib/core.ts';
+import { authenticate, berr, assembleThread, assembleStamped, shortId } from './lib/core.ts';
 
 export const thread = query({
   args: { request: v.any() },
@@ -31,7 +25,10 @@ export const thread = query({
     if (!th) return berr('THREAD_NOT_FOUND', { vars: { thread_id } });
 
     if (agent !== th.initiator && agent !== th.recipient) {
-      return berr('NOT_THREAD_PARTY', { vars: { thread_short: shortId(thread_id) }, reason: 'not_party' });
+      return berr('NOT_THREAD_PARTY', {
+        vars: { thread_short: shortId(thread_id) },
+        reason: 'not_party',
+      });
     }
 
     const rows = await ctx.db

@@ -102,7 +102,8 @@ export class BrokerClient {
   }
 
   private auth(): { token: string } {
-    if (!this.token) throw new Error('broker client has no agent token (run tenfour join / doctor)');
+    if (!this.token)
+      throw new Error('broker client has no agent token (run tenfour join / doctor)');
     return { token: this.token };
   }
 
@@ -119,7 +120,11 @@ export class BrokerClient {
       body: p.body,
       artifacts: p.artifacts ?? [],
     };
-    const request: Record<string, unknown> = { protocol: PROTOCOL_VERSION, auth: this.auth(), envelope };
+    const request: Record<string, unknown> = {
+      protocol: PROTOCOL_VERSION,
+      auth: this.auth(),
+      envelope,
+    };
     if (p.consent) request.consent = p.consent;
     if (p.unfreeze) request.unfreeze = true;
     const raw = await this.transport.mutation(BROKER_FUNCTIONS.send, { request });
@@ -160,7 +165,11 @@ export class BrokerClient {
     return AckResponseSchema.parse(raw);
   }
 
-  async thread(params: { thread_id: string; after_seq?: number; limit?: number }): Promise<ThreadResponse> {
+  async thread(params: {
+    thread_id: string;
+    after_seq?: number;
+    limit?: number;
+  }): Promise<ThreadResponse> {
     const request: Record<string, unknown> = {
       protocol: PROTOCOL_VERSION,
       auth: this.auth(),

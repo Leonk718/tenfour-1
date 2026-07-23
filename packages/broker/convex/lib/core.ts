@@ -5,11 +5,7 @@
  */
 import type { MutationCtx, QueryCtx } from '../_generated/server';
 import type { Doc } from '../_generated/dataModel';
-import {
-  ERRORS,
-  toWireError,
-  type TenfourErrorCode,
-} from '../../../adapter/src/strings.ts';
+import { ERRORS, toWireError, type TenfourErrorCode } from '../../../adapter/src/strings.ts';
 import { PROTOCOL_VERSION, SYSTEM_AGENT } from '../../../schema/src/protocol.ts';
 import { sha256Hex } from './ids.ts';
 

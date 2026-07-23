@@ -61,9 +61,7 @@ describe('rate limiting (STATE §9 — exact sliding log, send 12/60s AND 120/36
     await t.mutation(api.send.send, {
       request: sendReq(A.token, { ...envFor('question', { to: B.address }), kind: 'bogus' }),
     });
-    const rate = await t.run(
-      async (ctx) => (await ctx.db.query('rate_events').collect()).length,
-    );
+    const rate = await t.run(async (ctx) => (await ctx.db.query('rate_events').collect()).length);
     expect(rate).toBe(6);
   });
 });

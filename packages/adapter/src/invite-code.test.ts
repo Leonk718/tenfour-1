@@ -7,7 +7,15 @@ import { strToB64url, checksum4 } from './ids.ts';
 const ULID = '01J1PAVH5N40E3D8QT2W9YRKM3';
 
 async function makeCode(payload: Record<string, unknown>): Promise<string> {
-  const obj = { agent: 'jonathan/web', broker_url: 'https://x.convex.cloud', exp: Date.now() + 86400000, invite_id: ULID, secret: 'A'.repeat(43), v: 1, ...payload };
+  const obj = {
+    agent: 'jonathan/web',
+    broker_url: 'https://x.convex.cloud',
+    exp: Date.now() + 86400000,
+    invite_id: ULID,
+    secret: 'A'.repeat(43),
+    v: 1,
+    ...payload,
+  };
   const b64 = strToB64url(JSON.stringify(obj, Object.keys(obj).sort()));
   const check = await checksum4(b64);
   return `TENFOUR1.${b64}.${check}`;

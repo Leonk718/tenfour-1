@@ -15,7 +15,11 @@ export interface NotifyResult {
   detail: string;
 }
 
-export function notify(title: string, body: string, platform: NodeJS.Platform = process.platform): NotifyResult {
+export function notify(
+  title: string,
+  body: string,
+  platform: NodeJS.Platform = process.platform,
+): NotifyResult {
   try {
     if (platform === 'darwin') {
       const script = `display notification ${JSON.stringify(body)} with title ${JSON.stringify(title)}`;
@@ -35,7 +39,10 @@ export function notify(title: string, body: string, platform: NodeJS.Platform = 
         `$t.GetElementsByTagName('text')[1].AppendChild($t.CreateTextNode(${JSON.stringify(body)})) > $null;`,
         `[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('tenfour').Show([Windows.UI.Notifications.ToastNotification]::new($t));`,
       ].join(' ');
-      spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], { stdio: 'ignore', detached: true }).unref();
+      spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], {
+        stdio: 'ignore',
+        detached: true,
+      }).unref();
       return { dispatched: true, detail: 'windows toast' };
     }
     return { dispatched: false, detail: `no notifier for platform ${platform}` };

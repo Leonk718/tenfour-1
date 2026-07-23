@@ -2,14 +2,7 @@ import { convexTest } from 'convex-test';
 import { expect, test, describe } from 'vitest';
 import schema from './schema';
 import { api } from './_generated/api';
-import {
-  seedPair,
-  seedAgent,
-  sendReq,
-  envFor,
-  mintAgentToken,
-  PROTO,
-} from './testutil';
+import { seedPair, seedAgent, sendReq, envFor, mintAgentToken, PROTO } from './testutil';
 
 const modules = import.meta.glob('./**/*.*s');
 
@@ -37,10 +30,7 @@ describe('send validation order (STATE §3 / WIRE D19 — first-by-precedence)',
     const t = convexTest(schema, modules);
     const revoked = await seedAgent(t, 'ghost/dev', 'revoked');
     const res = await t.mutation(api.send.send, {
-      request: sendReq(
-        revoked.token,
-        envFor('question', { to: 'nobody/x', body: 'hi' }),
-      ),
+      request: sendReq(revoked.token, envFor('question', { to: 'nobody/x', body: 'hi' })),
     });
     expect(res.ok).toBe(false);
     expect(res.error.code).toBe('TENFOUR/AUTH_REVOKED');

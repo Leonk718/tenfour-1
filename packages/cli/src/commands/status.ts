@@ -12,7 +12,11 @@ import { shortThreadId } from '../../../adapter/src/strings.ts';
 import { out, json, printBrokerError, type GlobalFlags } from '../output.ts';
 import { EXIT } from '../exit-codes.ts';
 
-export async function runStatus(argv: string[], ctx: CliContext, flags: GlobalFlags): Promise<number> {
+export async function runStatus(
+  argv: string[],
+  ctx: CliContext,
+  flags: GlobalFlags,
+): Promise<number> {
   const clearOps = argv.includes('--clear-ops');
   const client = requireClient(ctx);
   const journal = new Journal(ctx.paths.journalDir);
@@ -45,7 +49,8 @@ export async function runStatus(argv: string[], ctx: CliContext, flags: GlobalFl
   const abandoned = outbound.filter((o) => o.state === 'abandoned');
 
   if (clearOps) {
-    for (const o of [...stuck, ...abandoned]) journal.appendOutbound({ at: Date.now(), client_id: o.client_id, state: 'abandoned' });
+    for (const o of [...stuck, ...abandoned])
+      journal.appendOutbound({ at: Date.now(), client_id: o.client_id, state: 'abandoned' });
   }
 
   if (flags.json) {
@@ -55,9 +60,15 @@ export async function runStatus(argv: string[], ctx: CliContext, flags: GlobalFl
 
   if (rows.length === 0) out('no pending threads.');
   for (const r of rows) {
-    out(`${r.thread}  ${r.peer}  ${r.state}  round ${r.round}  last:${r.last_kind} (${r.last_activity})`);
+    out(
+      `${r.thread}  ${r.peer}  ${r.state}  round ${r.round}  last:${r.last_kind} (${r.last_activity})`,
+    );
   }
-  for (const o of stuck) out(`outbound ${o.client_id.slice(0, 8)} stuck in ${o.state} — never confirmed.`);
-  for (const o of abandoned) out(`outbound ${o.client_id.slice(0, 8)} abandoned (never transmitted). ${clearOps ? 'cleared.' : 'Re-send if still wanted; tenfour status --clear-ops to dismiss.'}`);
+  for (const o of stuck)
+    out(`outbound ${o.client_id.slice(0, 8)} stuck in ${o.state} — never confirmed.`);
+  for (const o of abandoned)
+    out(
+      `outbound ${o.client_id.slice(0, 8)} abandoned (never transmitted). ${clearOps ? 'cleared.' : 'Re-send if still wanted; tenfour status --clear-ops to dismiss.'}`,
+    );
   return EXIT.OK;
 }

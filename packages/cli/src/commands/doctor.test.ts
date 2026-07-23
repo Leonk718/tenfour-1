@@ -31,15 +31,37 @@ afterEach(() => {
 });
 
 function writeConfig(): void {
-  fs.writeFileSync(path.join(home, 'config.json'), JSON.stringify({ broker_url: 'https://x.convex.cloud', agent: 'jonathan/web', peer: 'brian/design', workspaces: [], allowed_repos: [], standing_rules: { auto_answer_questions: false, auto_accept_from: [] } }));
-  fs.writeFileSync(path.join(home, 'credentials.json'), JSON.stringify({ agent: 'jonathan/web', token: 'tf1_' + 'A'.repeat(43) }));
+  fs.writeFileSync(
+    path.join(home, 'config.json'),
+    JSON.stringify({
+      broker_url: 'https://x.convex.cloud',
+      agent: 'jonathan/web',
+      peer: 'brian/design',
+      workspaces: [],
+      allowed_repos: [],
+      standing_rules: { auto_answer_questions: false, auto_accept_from: [] },
+    }),
+  );
+  fs.writeFileSync(
+    path.join(home, 'credentials.json'),
+    JSON.stringify({ agent: 'jonathan/web', token: 'tf1_' + 'A'.repeat(43) }),
+  );
 }
 
 const goodPing = (skewMs = 0): PingProbe => ({
   ok: true,
   rtt_ms: 20,
   local_ts: 1_000_000,
-  response: { ok: true, pong: true, nonce: 'doctor', agent: 'jonathan/web', server_time: 1_000_000 + skewMs, protocol_versions: ['tenfour/1'], broker_version: '1', peer: null },
+  response: {
+    ok: true,
+    pong: true,
+    nonce: 'doctor',
+    agent: 'jonathan/web',
+    server_time: 1_000_000 + skewMs,
+    protocol_versions: ['tenfour/1'],
+    broker_version: '1',
+    peer: null,
+  },
 });
 
 describe('check 1 config-parse', () => {
@@ -62,7 +84,9 @@ describe('check 13 consent-surface (release-blocking)', () => {
 describe('checks 5–7 (shared diag.ping)', () => {
   it('broker-reach PASS on a good ping, FAIL on an unreachable one', () => {
     expect(checkBrokerReach(goodPing()).status).toBe('PASS');
-    expect(checkBrokerReach({ ok: false, rtt_ms: 0, local_ts: 0, error: 'ECONNREFUSED' }).status).toBe('FAIL');
+    expect(
+      checkBrokerReach({ ok: false, rtt_ms: 0, local_ts: 0, error: 'ECONNREFUSED' }).status,
+    ).toBe('FAIL');
   });
   it('auth-valid PASS when the agent matches, FAIL on mismatch', () => {
     expect(checkAuthValid(goodPing(), 'jonathan/web').status).toBe('PASS');
@@ -78,7 +102,11 @@ describe('checks 5–7 (shared diag.ping)', () => {
 describe('check 2 credentials-perms', () => {
   it('FAILs a world-readable secret on POSIX, PASSes 0600', () => {
     if (process.platform === 'win32') return;
-    const paths = { credentialsJson: path.join(home, 'credentials.json'), configJson: path.join(home, 'config.json'), adminJson: path.join(home, 'admin.json') };
+    const paths = {
+      credentialsJson: path.join(home, 'credentials.json'),
+      configJson: path.join(home, 'config.json'),
+      adminJson: path.join(home, 'admin.json'),
+    };
     fs.writeFileSync(paths.credentialsJson, '{}');
     fs.writeFileSync(paths.configJson, '{}');
     fs.chmodSync(paths.credentialsJson, 0o644);

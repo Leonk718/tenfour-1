@@ -57,7 +57,11 @@ export function ageString(tsMs: number, now: number = Date.now()): string {
 
 /** One-line summary of a body (first non-empty line, truncated). */
 export function summarize(body: string, max = 100): string {
-  const line = body.split('\n').map((l) => l.trim()).find((l) => l.length > 0) ?? '';
+  const line =
+    body
+      .split('\n')
+      .map((l) => l.trim())
+      .find((l) => l.length > 0) ?? '';
   return line.length > max ? line.slice(0, max - 1) + '…' : line;
 }
 
@@ -88,12 +92,23 @@ export function wrapItem(item: ItemView, now: number = Date.now()): string {
  * message injects the full wrapper instead of a digest (JOURNEYS §4). Returns null when
  * nothing pends.
  */
-export function buildSessionStartOutput(items: readonly ItemView[], now: number = Date.now()): SessionStartOutput | null {
+export function buildSessionStartOutput(
+  items: readonly ItemView[],
+  now: number = Date.now(),
+): SessionStartOutput | null {
   if (items.length === 0) return null;
   if (items.length === 1) {
-    return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: wrapItem(items[0], now) } };
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'SessionStart',
+        additionalContext: wrapItem(items[0], now),
+      },
+    };
   }
-  const header = fmt(SESSION_START_DIGEST_HEADER, { count: items.length, plural_s: pluralS(items.length) });
+  const header = fmt(SESSION_START_DIGEST_HEADER, {
+    count: items.length,
+    plural_s: pluralS(items.length),
+  });
   const shown = items.slice(0, DIGEST_MAX_ITEMS);
   const lines = shown.map((item, i) =>
     fmt(DIGEST_LINE, {
@@ -112,19 +127,30 @@ export function buildSessionStartOutput(items: readonly ItemView[], now: number 
     parts.push(fmt(DIGEST_OVERFLOW_LINE, { overflow_count: items.length - DIGEST_MAX_ITEMS }));
   }
   parts.push(SESSION_START_DIGEST_FOOTER);
-  return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: parts.join('\n') } };
+  return {
+    hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: parts.join('\n') },
+  };
 }
 
 /** UserPromptSubmit (I2): prepend a count prefix then each full wrapper. Null when empty. */
-export function buildUserPromptSubmitOutput(items: readonly ItemView[], now: number = Date.now()): UserPromptSubmitOutput | null {
+export function buildUserPromptSubmitOutput(
+  items: readonly ItemView[],
+  now: number = Date.now(),
+): UserPromptSubmitOutput | null {
   if (items.length === 0) return null;
-  const prefix = fmt(USER_PROMPT_SUBMIT_PREFIX, { count: items.length, plural_s: pluralS(items.length) });
+  const prefix = fmt(USER_PROMPT_SUBMIT_PREFIX, {
+    count: items.length,
+    plural_s: pluralS(items.length),
+  });
   const body = [prefix, ...items.map((i) => wrapItem(i, now))].join('\n\n');
   return { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: body } };
 }
 
 /** PostToolUse (I4): mid-turn preamble + up to 5 wrapped messages. Null when empty. */
-export function buildPostToolUseOutput(items: readonly ItemView[], now: number = Date.now()): PostToolUseOutput | null {
+export function buildPostToolUseOutput(
+  items: readonly ItemView[],
+  now: number = Date.now(),
+): PostToolUseOutput | null {
   if (items.length === 0) return null;
   const shown = items.slice(0, DIGEST_MAX_ITEMS);
   const body = [POST_TOOL_USE_MIDTURN_PREAMBLE, ...shown.map((i) => wrapItem(i, now))].join('\n\n');
@@ -135,7 +161,10 @@ export function buildPostToolUseOutput(items: readonly ItemView[], now: number =
  * Stop (I3): block-with-reason surface-first when new arrivals exist. MUST NOT block when
  * stop_hook_active is true (HK-005 loop guard). Returns null to allow the stop.
  */
-export function buildStopOutput(input: { stop_hook_active?: boolean }, arrivals: readonly ItemView[]): StopBlockOutput | null {
+export function buildStopOutput(
+  input: { stop_hook_active?: boolean },
+  arrivals: readonly ItemView[],
+): StopBlockOutput | null {
   if (input.stop_hook_active === true) return null;
   if (arrivals.length === 0) return null;
   const a = arrivals[0];

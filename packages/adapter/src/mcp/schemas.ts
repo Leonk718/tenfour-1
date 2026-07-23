@@ -47,7 +47,12 @@ export type TenfourThreadInput = z.infer<typeof TenfourThreadInputSchema>;
 export const TenfourWaitInputSchema = z
   .object({
     thread_id: UlidSchema,
-    timeout_s: z.number().int().min(WAIT_TIMEOUT_MIN).max(WAIT_TIMEOUT_MAX).default(WAIT_TIMEOUT_DEFAULT),
+    timeout_s: z
+      .number()
+      .int()
+      .min(WAIT_TIMEOUT_MIN)
+      .max(WAIT_TIMEOUT_MAX)
+      .default(WAIT_TIMEOUT_DEFAULT),
   })
   .strict();
 export type TenfourWaitInput = z.infer<typeof TenfourWaitInputSchema>;
@@ -68,12 +73,28 @@ export const TENFOUR_SEND_JSON_SCHEMA = {
   required: ['to', 'kind', 'body'],
   properties: {
     to: { type: 'string', description: 'The paired peer agent name (user/agent).' },
-    kind: { type: 'string', enum: [...KINDS], description: "One of the ten kinds. 'accepted' is rejected here." },
-    thread_id: { type: ['string', 'null'], pattern: ULID_PATTERN, description: 'Thread ULID, or null to open (task/question only).' },
-    in_reply_to: { type: ['string', 'null'], pattern: ULID_PATTERN, description: 'REQUIRED for kind=answer: the id of the question being answered.' },
+    kind: {
+      type: 'string',
+      enum: [...KINDS],
+      description: "One of the ten kinds. 'accepted' is rejected here.",
+    },
+    thread_id: {
+      type: ['string', 'null'],
+      pattern: ULID_PATTERN,
+      description: 'Thread ULID, or null to open (task/question only).',
+    },
+    in_reply_to: {
+      type: ['string', 'null'],
+      pattern: ULID_PATTERN,
+      description: 'REQUIRED for kind=answer: the id of the question being answered.',
+    },
     repo: { type: ['string', 'null'], description: 'Canonical repo-id; REQUIRED iff kind=task.' },
     body: { type: 'string', description: 'Markdown body, <= 16 KB.' },
-    artifacts: { type: 'array', items: ARTIFACT_JSON_SCHEMA, description: 'Optional artifacts (result requires >= 1 sha-pinned).' },
+    artifacts: {
+      type: 'array',
+      items: ARTIFACT_JSON_SCHEMA,
+      description: 'Optional artifacts (result requires >= 1 sha-pinned).',
+    },
   },
 } as const;
 
@@ -83,7 +104,11 @@ export const TENFOUR_ACK_JSON_SCHEMA = {
   required: ['message_id', 'attempt_id'],
   properties: {
     message_id: { type: 'string', pattern: ULID_PATTERN, description: 'The delivered message id.' },
-    attempt_id: { type: 'string', pattern: ULID_PATTERN, description: 'The delivery attempt id from the wrapper.' },
+    attempt_id: {
+      type: 'string',
+      pattern: ULID_PATTERN,
+      description: 'The delivery attempt id from the wrapper.',
+    },
   },
 } as const;
 
@@ -91,7 +116,9 @@ export const TENFOUR_THREAD_JSON_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   required: ['thread_id'],
-  properties: { thread_id: { type: 'string', pattern: ULID_PATTERN, description: 'The thread ULID.' } },
+  properties: {
+    thread_id: { type: 'string', pattern: ULID_PATTERN, description: 'The thread ULID.' },
+  },
 } as const;
 
 export const TENFOUR_WAIT_JSON_SCHEMA = {
@@ -100,6 +127,12 @@ export const TENFOUR_WAIT_JSON_SCHEMA = {
   required: ['thread_id'],
   properties: {
     thread_id: { type: 'string', pattern: ULID_PATTERN, description: 'The thread to wait on.' },
-    timeout_s: { type: 'integer', minimum: WAIT_TIMEOUT_MIN, maximum: WAIT_TIMEOUT_MAX, default: WAIT_TIMEOUT_DEFAULT, description: 'Block up to this many seconds (default 300).' },
+    timeout_s: {
+      type: 'integer',
+      minimum: WAIT_TIMEOUT_MIN,
+      maximum: WAIT_TIMEOUT_MAX,
+      default: WAIT_TIMEOUT_DEFAULT,
+      description: 'Block up to this many seconds (default 300).',
+    },
   },
 } as const;

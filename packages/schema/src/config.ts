@@ -52,7 +52,10 @@ export const StandingRulesSchema = z
 export const TenfourConfigSchema = z
   .object({
     /** Broker base URL (https). */
-    broker_url: z.string().max(300).regex(/^https:\/\//, 'broker_url must be https'),
+    broker_url: z
+      .string()
+      .max(300)
+      .regex(/^https:\/\//, 'broker_url must be https'),
     /** This machine's agent name (e.g. "jonathan/web"). */
     agent: AgentNameSchema,
     /** The paired peer's agent name. */

@@ -49,9 +49,9 @@ describe('conformance fixtures — ClientEnvelopeSchema (protocol.ts CONFORMANCE
     // Sanity: the fixtures span multiple distinct artifact rules.
     expect(byArt.size).toBeGreaterThanOrEqual(10);
     const oneSided = [...byArt.entries()].filter(([, c]) => c.accept === 0 || c.reject === 0);
-    expect(
-      oneSided.map(([art, c]) => `${art} (accept=${c.accept}, reject=${c.reject})`),
-    ).toEqual([]);
+    expect(oneSided.map(([art, c]) => `${art} (accept=${c.accept}, reject=${c.reject})`)).toEqual(
+      [],
+    );
   });
 
   test('both accept and reject cases exist across the corpus', () => {

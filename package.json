@@ -14,7 +14,15 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/node": "^26.1.1",
     "convex-test": "^0.0.54",
+    "esbuild": "^0.28.1",
+    "prettier": "^3.9.6",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.check.json",
+    "test": "vitest run",
+    "lint": "prettier --check \"packages/**/*.ts\" \"scripts/**/*.mjs\"",
+    "build": "node scripts/build.mjs"
   }
 }

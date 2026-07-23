@@ -11,25 +11,38 @@ import { out, printBrokerError, type GlobalFlags } from '../output.ts';
 import { json } from '../output.ts';
 import { EXIT } from '../exit-codes.ts';
 
-export async function runInvite(argv: string[], ctx: CliContext, flags: GlobalFlags): Promise<number> {
+export async function runInvite(
+  argv: string[],
+  ctx: CliContext,
+  flags: GlobalFlags,
+): Promise<number> {
   const positionals = argv.filter((a) => !a.startsWith('--'));
   const agent = positionals[0];
   if (!agent || !AgentNameSchema.safeParse(agent).success) {
-    throw new LocalError('usage: tenfour invite <agent-name> [--ttl <hours>] (agent-name is user/agent, lowercase)');
+    throw new LocalError(
+      'usage: tenfour invite <agent-name> [--ttl <hours>] (agent-name is user/agent, lowercase)',
+    );
   }
   if (!ctx.admin) {
-    throw new LocalError('no admin.json on this machine — invites are minted on the owner machine (tenfour init --create-broker).');
+    throw new LocalError(
+      'no admin.json on this machine — invites are minted on the owner machine (tenfour init --create-broker).',
+    );
   }
   const ttlIdx = argv.indexOf('--ttl');
   let ttl_s: number | undefined;
   if (ttlIdx >= 0) {
     const hours = Number(argv[ttlIdx + 1]);
-    if (!Number.isFinite(hours) || hours <= 0) throw new LocalError('--ttl must be a positive number of hours');
+    if (!Number.isFinite(hours) || hours <= 0)
+      throw new LocalError('--ttl must be a positive number of hours');
     ttl_s = Math.round(hours * 3600);
   }
 
   const client = new BrokerClient({ url: ctx.admin.broker_url });
-  const resp = await client.issueInvite({ admin_key: ctx.admin.admin_key, agent, ...(ttl_s !== undefined ? { ttl_s } : {}) });
+  const resp = await client.issueInvite({
+    admin_key: ctx.admin.admin_key,
+    agent,
+    ...(ttl_s !== undefined ? { ttl_s } : {}),
+  });
   if (!resp.ok) {
     printBrokerError(resp.error);
     return EXIT.BROKER_REJECTED;

@@ -16,7 +16,11 @@ import { confirm, readLine } from '../prompt.ts';
 import { out, err, printBrokerError, printCodeError, type GlobalFlags } from '../output.ts';
 import { EXIT } from '../exit-codes.ts';
 
-export async function runJoin(argv: string[], ctx: CliContext, flags: GlobalFlags): Promise<number> {
+export async function runJoin(
+  argv: string[],
+  ctx: CliContext,
+  flags: GlobalFlags,
+): Promise<number> {
   const yes = argv.includes('--yes') || flags.json;
 
   // Step 1 — imply base init if not installed.
@@ -27,7 +31,9 @@ export async function runJoin(argv: string[], ctx: CliContext, flags: GlobalFlag
   let code: string;
   if (codeIdx >= 0) {
     code = argv[codeIdx + 1] ?? '';
-    err('warning: passing --code puts the invite in your shell history; prefer the interactive prompt.');
+    err(
+      'warning: passing --code puts the invite in your shell history; prefer the interactive prompt.',
+    );
   } else {
     code = await readLine('Paste your tenfour invite code: ');
   }
@@ -55,7 +61,10 @@ export async function runJoin(argv: string[], ctx: CliContext, flags: GlobalFlag
   }
 
   // Step 5 — write credentials + config.
-  saveCredentials({ agent: resp.agent, token: resp.token, token_id: resp.token_id, peer: resp.pair.peer }, flags.home);
+  saveCredentials(
+    { agent: resp.agent, token: resp.token, token_id: resp.token_id, peer: resp.pair.peer },
+    flags.home,
+  );
   const config = TenfourConfigSchema.parse({
     broker_url,
     agent: resp.agent,
@@ -77,9 +86,13 @@ export async function runJoin(argv: string[], ctx: CliContext, flags: GlobalFlag
   out(`paired: ${resp.agent} ↔ ${resp.pair.peer} (round budget ${resp.pair.max_rounds}).`);
   out(resp.covenant || COVENANT_LINE);
   out('');
-  out('Next: your peer sends you a task; it will surface in your Claude sessions. Grant it with: tenfour accept <thread>.');
+  out(
+    'Next: your peer sends you a task; it will surface in your Claude sessions. Grant it with: tenfour accept <thread>.',
+  );
 
   // Step 7 — hygiene reminders.
-  err('reminder: delete the message that carried this code. On Windows also clear clipboard history (Win+V).');
+  err(
+    'reminder: delete the message that carried this code. On Windows also clear clipboard history (Win+V).',
+  );
   return EXIT.OK;
 }

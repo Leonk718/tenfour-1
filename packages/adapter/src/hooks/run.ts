@@ -23,7 +23,12 @@ import {
 
 export type HookEvent = 'session-start' | 'user-prompt-submit' | 'post-tool-use' | 'stop';
 
-export const HOOK_EVENTS: readonly HookEvent[] = ['session-start', 'user-prompt-submit', 'post-tool-use', 'stop'];
+export const HOOK_EVENTS: readonly HookEvent[] = [
+  'session-start',
+  'user-prompt-submit',
+  'post-tool-use',
+  'stop',
+];
 
 interface HookContext {
   client: BrokerClient;
@@ -48,13 +53,20 @@ export function writeOutput(obj: unknown): void {
 }
 
 /** Load broker client + journal, or null (fail-open) if the machine is not set up. */
-export function loadContext(home?: string, env: NodeJS.ProcessEnv = process.env): HookContext | null {
+export function loadContext(
+  home?: string,
+  env: NodeJS.ProcessEnv = process.env,
+): HookContext | null {
   const cfg = loadConfig(home, env);
   const creds = loadCredentials(home, env);
   if (!cfg.ok || !creds.ok) return null;
   const journal = new Journal(tenfourPaths(home, env).journalDir);
   journal.ensure();
-  return { client: new BrokerClient({ url: cfg.value.broker_url, token: creds.value.token }), journal, agent: creds.value.agent };
+  return {
+    client: new BrokerClient({ url: cfg.value.broker_url, token: creds.value.token }),
+    journal,
+    agent: creds.value.agent,
+  };
 }
 
 /** Claim inbox, write-ahead journal `received`+`injected`, and return the views to inject. */
@@ -107,7 +119,12 @@ function readPendingContent(journal: Journal): ItemView[] {
 
 const MIDTURN_THROTTLE_MS = 30_000;
 
-export async function runEvent(event: HookEvent, input: Record<string, unknown>, home?: string, env: NodeJS.ProcessEnv = process.env): Promise<void> {
+export async function runEvent(
+  event: HookEvent,
+  input: Record<string, unknown>,
+  home?: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<void> {
   // PostToolUse: LOCAL ONLY — stat pending.flag vs watermark, honor demotion + throttle.
   if (event === 'post-tool-use') {
     const j = new Journal(tenfourPaths(home, env).journalDir);

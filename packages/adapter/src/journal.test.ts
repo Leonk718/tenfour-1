@@ -100,7 +100,11 @@ describe('lockfile (DEL-23)', () => {
   });
   it('withLock releases even on throw', () => {
     const j = new Journal(dir);
-    expect(() => j.withLock(() => { throw new Error('boom'); })).toThrow('boom');
+    expect(() =>
+      j.withLock(() => {
+        throw new Error('boom');
+      }),
+    ).toThrow('boom');
     expect(j.acquire(200)).toBe(true); // lock was released
     j.release();
   });

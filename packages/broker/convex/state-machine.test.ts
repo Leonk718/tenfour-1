@@ -136,14 +136,19 @@ async function runCell(
   await t.run(async (ctx) => {
     for (const e of await ctx.db.query('rate_events').collect()) await ctx.db.delete(e._id);
   });
-  const active = state === 'offered' || state === 'in_progress' || state === 'review' || state === 'open';
+  const active =
+    state === 'offered' || state === 'in_progress' || state === 'review' || state === 'open';
   const isAccOffered = kind === 'accepted' && state === 'offered';
   const consentToken = isAccOffered ? mintConsentToken() : null;
   const grantSeq = isAccOffered ? null : active ? 1 : null;
 
   // Task-thread answer needs an open question authored by the counterparty (becomes head).
   const openQuestionFrom =
-    rootKind === 'task' && kind === 'answer' && active ? (role === 'I' ? B.address : A.address) : null;
+    rootKind === 'task' && kind === 'answer' && active
+      ? role === 'I'
+        ? B.address
+        : A.address
+      : null;
 
   const seed = await seedThread(t, {
     rootKind,
@@ -189,8 +194,10 @@ describe('state machine (STATE-MACHINE §5.1 / §5.2 — every kind×state×role
     const { A, B } = await seedPair(t, { maxRounds: 10 });
 
     const combos: Array<['task' | 'question', string, string, 'I' | 'O' | 'SYS']> = [];
-    for (const s of TASK_STATES) for (const k of KINDS) for (const r of ROLES) combos.push(['task', s, k, r]);
-    for (const s of Q_STATES) for (const k of KINDS) for (const r of ROLES) combos.push(['question', s, k, r]);
+    for (const s of TASK_STATES)
+      for (const k of KINDS) for (const r of ROLES) combos.push(['task', s, k, r]);
+    for (const s of Q_STATES)
+      for (const k of KINDS) for (const r of ROLES) combos.push(['question', s, k, r]);
 
     let covered = 0;
     let io = 0;
@@ -211,7 +218,10 @@ describe('state machine (STATE-MACHINE §5.1 / §5.2 — every kind×state×role
       const { res, threadId } = await runCell(t, A, B, rootKind, state, kind, role as 'I' | 'O');
 
       if (exp.kind === 'ok') {
-        expect(res.ok, `${cellId}: expected ok → ${exp.to}, got ${JSON.stringify(res.error ?? {})}`).toBe(true);
+        expect(
+          res.ok,
+          `${cellId}: expected ok → ${exp.to}, got ${JSON.stringify(res.error ?? {})}`,
+        ).toBe(true);
         expect(res.thread.status, `${cellId}: status`).toBe(exp.to);
         if (exp.closed) {
           const closedReason = await t.run(async (ctx) => {

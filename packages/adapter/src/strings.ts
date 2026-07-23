@@ -308,7 +308,7 @@ export const ROUND_CAP_SYSTEM_BODY =
 
 // Injection point: tenfour_send local rejection of kind:accepted (CLI-MCP MCP-010).
 export const SEND_ACCEPTED_REJECTED =
-  "accepted is not sent by models. Your human accepts via: tenfour accept {thread_short} in a terminal (or a standing rule they declared in config). Surface the task and end your turn.";
+  'accepted is not sent by models. Your human accepts via: tenfour accept {thread_short} in a terminal (or a standing rule they declared in config). Surface the task and end your turn.';
 
 // Injection point: the covenant line printed by tenfour join and returned by
 // invite.redeem (WIRE §8.4).
@@ -326,7 +326,7 @@ export const STANDBY_KIND_REFUSAL =
 
 // Injection point: receiver-allowlist surface-time block notice (ARTIFACTS ART-104).
 export const ARTIFACT_ALLOWLIST_BLOCKED =
-  'TENFOUR/REPO_NOT_ALLOWED: a {kind} from {from} targets {repo}, which is not on this machine\'s repo allowlist. The message body was NOT surfaced. Tell your human: to accept work on {repo}, add it to allowed_repos in ~/.tenfour/config.json, then run: tenfour inbox --thread {thread_id}';
+  "TENFOUR/REPO_NOT_ALLOWED: a {kind} from {from} targets {repo}, which is not on this machine's repo allowlist. The message body was NOT surfaced. Tell your human: to accept work on {repo}, add it to allowed_repos in ~/.tenfour/config.json, then run: tenfour inbox --thread {thread_id}";
 
 // Injection point: ancestor-check results (ARTIFACTS §8.4) — the canonical bytes.
 export const ARTIFACT_ANCESTOR = {

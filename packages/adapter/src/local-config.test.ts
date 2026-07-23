@@ -14,7 +14,14 @@ afterEach(() => {
   fs.rmSync(home, { recursive: true, force: true });
 });
 
-const CONFIG = { broker_url: 'https://x.convex.cloud', agent: 'jonathan/web', peer: 'brian/design', workspaces: [], allowed_repos: [], standing_rules: { auto_answer_questions: false, auto_accept_from: [] } };
+const CONFIG = {
+  broker_url: 'https://x.convex.cloud',
+  agent: 'jonathan/web',
+  peer: 'brian/design',
+  workspaces: [],
+  allowed_repos: [],
+  standing_rules: { auto_answer_questions: false, auto_accept_from: [] },
+};
 const CREDS = { agent: 'jonathan/web', token: 'tf1_' + 'A'.repeat(43) };
 
 describe('config parse', () => {
@@ -36,7 +43,10 @@ describe('config parse', () => {
     if (!res.ok) expect(res.reason).toBe('unparseable');
   });
   it('reports invalid on a schema violation (non-https broker_url)', () => {
-    fs.writeFileSync(path.join(home, 'config.json'), JSON.stringify({ ...CONFIG, broker_url: 'http://x' }));
+    fs.writeFileSync(
+      path.join(home, 'config.json'),
+      JSON.stringify({ ...CONFIG, broker_url: 'http://x' }),
+    );
     const res = loadConfig(home);
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.reason).toBe('invalid');
@@ -48,7 +58,10 @@ describe('credentials parse', () => {
     saveCredentials(CREDS, home);
     const res = loadCredentials(home);
     expect(res.ok).toBe(true);
-    fs.writeFileSync(path.join(home, 'credentials.json'), JSON.stringify({ agent: 'jonathan/web', token: 'nope' }));
+    fs.writeFileSync(
+      path.join(home, 'credentials.json'),
+      JSON.stringify({ agent: 'jonathan/web', token: 'nope' }),
+    );
     const bad = loadCredentials(home);
     expect(bad.ok).toBe(false);
   });

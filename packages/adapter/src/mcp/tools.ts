@@ -41,7 +41,12 @@ import {
 import type { z } from 'zod';
 
 /** The EXACTLY four served tool names (B1/B15). Doctor check 13 asserts this set. */
-export const TOOL_NAMES = ['tenfour_send', 'tenfour_ack', 'tenfour_thread', 'tenfour_wait'] as const;
+export const TOOL_NAMES = [
+  'tenfour_send',
+  'tenfour_ack',
+  'tenfour_thread',
+  'tenfour_wait',
+] as const;
 export type ToolName = (typeof TOOL_NAMES)[number];
 
 export interface ToolDefinition {
@@ -52,10 +57,22 @@ export interface ToolDefinition {
 
 /** The tool list served at `tools/list` — descriptions come verbatim from strings.ts. */
 export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
-  { name: 'tenfour_send', description: TOOL_SEND_DESCRIPTION, inputSchema: TENFOUR_SEND_JSON_SCHEMA },
+  {
+    name: 'tenfour_send',
+    description: TOOL_SEND_DESCRIPTION,
+    inputSchema: TENFOUR_SEND_JSON_SCHEMA,
+  },
   { name: 'tenfour_ack', description: TOOL_ACK_DESCRIPTION, inputSchema: TENFOUR_ACK_JSON_SCHEMA },
-  { name: 'tenfour_thread', description: TOOL_THREAD_DESCRIPTION, inputSchema: TENFOUR_THREAD_JSON_SCHEMA },
-  { name: 'tenfour_wait', description: TOOL_WAIT_DESCRIPTION, inputSchema: TENFOUR_WAIT_JSON_SCHEMA },
+  {
+    name: 'tenfour_thread',
+    description: TOOL_THREAD_DESCRIPTION,
+    inputSchema: TENFOUR_THREAD_JSON_SCHEMA,
+  },
+  {
+    name: 'tenfour_wait',
+    description: TOOL_WAIT_DESCRIPTION,
+    inputSchema: TENFOUR_WAIT_JSON_SCHEMA,
+  },
 ];
 
 export interface Clock {
@@ -80,7 +97,10 @@ export interface ToolDeps {
 export type ToolResult = Record<string, unknown> & { status: string };
 
 /** MCP-001: build the structured error result from the strings.ts ERRORS registry. */
-export function mcpErrorFromCode(code: TenfourErrorCode, vars: Record<string, string | number> = {}): ToolResult {
+export function mcpErrorFromCode(
+  code: TenfourErrorCode,
+  vars: Record<string, string | number> = {},
+): ToolResult {
   const e = ERRORS[code];
   return {
     status: 'error',
@@ -189,7 +209,12 @@ export async function handleSend(deps: ToolDeps, args: unknown): Promise<ToolRes
   if (resp.duplicate) {
     return {
       status: 'duplicate',
-      note: resp.note ?? fmt(SEND_DUPLICATE_NOTE, { id: resp.message.id, delivery_state: resp.message.delivery_state }),
+      note:
+        resp.note ??
+        fmt(SEND_DUPLICATE_NOTE, {
+          id: resp.message.id,
+          delivery_state: resp.message.delivery_state,
+        }),
       envelope: resp.message,
       delivery_state: resp.message.delivery_state,
     };
@@ -205,7 +230,10 @@ export async function handleSend(deps: ToolDeps, args: unknown): Promise<ToolRes
 export async function handleAck(deps: ToolDeps, args: unknown): Promise<ToolResult> {
   const parsed = TenfourAckInputSchema.safeParse(args);
   if (!parsed.success) return teachingError(parsed.error);
-  const resp = await deps.client.ack({ message_id: parsed.data.message_id, attempt_id: parsed.data.attempt_id });
+  const resp = await deps.client.ack({
+    message_id: parsed.data.message_id,
+    attempt_id: parsed.data.attempt_id,
+  });
   if (!resp.ok) return mcpErrorFromBroker(resp.error);
   return { status: resp.duplicate ? 'already_acked' : 'acked', note: resp.note };
 }
@@ -241,7 +269,9 @@ export async function handleWait(deps: ToolDeps, args: unknown): Promise<ToolRes
   for (;;) {
     const inbox = await deps.client.inbox({ mode: 'claim', holder });
     if (!inbox.ok) return mcpErrorFromBroker(inbox.error);
-    const item = inbox.items.find((i) => i.message.thread_id === thread_id && i.attempt_id !== null);
+    const item = inbox.items.find(
+      (i) => i.message.thread_id === thread_id && i.attempt_id !== null,
+    );
     if (item && item.attempt_id) {
       const attemptId = item.attempt_id;
       const messageId = item.message.id;
@@ -253,7 +283,11 @@ export async function handleWait(deps: ToolDeps, args: unknown): Promise<ToolRes
       } catch {
         /* journal best-effort */
       }
-      const ackResp = await deps.client.ack({ message_id: messageId, attempt_id: attemptId, state: 'acked' });
+      const ackResp = await deps.client.ack({
+        message_id: messageId,
+        attempt_id: attemptId,
+        state: 'acked',
+      });
       if (ackResp.ok) deps.journal?.recordAcked(messageId, attemptId);
       const wrapped = assembleInboundWrapper({
         nonce: nonceHex(),
@@ -288,7 +322,11 @@ export function isToolName(name: string): name is ToolName {
 }
 
 /** Dispatch a tool call to its handler. Unknown tool name → teaching result. */
-export async function handleToolCall(deps: ToolDeps, name: string, args: unknown): Promise<ToolResult> {
+export async function handleToolCall(
+  deps: ToolDeps,
+  name: string,
+  args: unknown,
+): Promise<ToolResult> {
   if (!isToolName(name)) {
     return {
       status: 'error',

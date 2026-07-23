@@ -100,7 +100,12 @@ export class Journal {
     for (;;) {
       try {
         const fd = fs.openSync(this.lockFile, 'wx');
-        const info = JSON.stringify({ pid: process.pid, holder: `${process.pid}`, acquired_at: Date.now(), host: os.hostname() });
+        const info = JSON.stringify({
+          pid: process.pid,
+          holder: `${process.pid}`,
+          acquired_at: Date.now(),
+          host: os.hostname(),
+        });
         fs.writeFileSync(fd, info);
         try {
           fs.fsyncSync(fd);
@@ -230,7 +235,12 @@ export class Journal {
       const prev = map.get(r.message_id);
       const redelivery = (prev?.redelivery ?? false) || r.redelivery === true;
       if (!prev || INBOUND_RANK[r.state] >= INBOUND_RANK[prev.state]) {
-        map.set(r.message_id, { message_id: r.message_id, attempt_id: r.attempt_id, state: r.state, redelivery });
+        map.set(r.message_id, {
+          message_id: r.message_id,
+          attempt_id: r.attempt_id,
+          state: r.state,
+          redelivery,
+        });
       } else {
         map.set(r.message_id, { ...prev, redelivery });
       }
@@ -246,24 +256,50 @@ export class Journal {
     return this.states().has(messageId);
   }
 
-  recordReceived(messageId: string, attemptId: string, opts: { standing_rule?: boolean } = {}): void {
-    this.appendInbound({ at: Date.now(), message_id: messageId, attempt_id: attemptId, state: 'received', ...opts });
+  recordReceived(
+    messageId: string,
+    attemptId: string,
+    opts: { standing_rule?: boolean } = {},
+  ): void {
+    this.appendInbound({
+      at: Date.now(),
+      message_id: messageId,
+      attempt_id: attemptId,
+      state: 'received',
+      ...opts,
+    });
   }
 
   /** Append `injected`; if the message was already at `injected` (crash leftover), mark redelivery (DEL-27). */
   recordInjected(messageId: string, attemptId: string): boolean {
     const cur = this.stateOf(messageId);
     const redelivery = cur === 'injected';
-    this.appendInbound({ at: Date.now(), message_id: messageId, attempt_id: attemptId, state: 'injected', ...(redelivery ? { redelivery: true } : {}) });
+    this.appendInbound({
+      at: Date.now(),
+      message_id: messageId,
+      attempt_id: attemptId,
+      state: 'injected',
+      ...(redelivery ? { redelivery: true } : {}),
+    });
     return redelivery;
   }
 
   recordAckPending(messageId: string, attemptId: string): void {
-    this.appendInbound({ at: Date.now(), message_id: messageId, attempt_id: attemptId, state: 'ack_pending' });
+    this.appendInbound({
+      at: Date.now(),
+      message_id: messageId,
+      attempt_id: attemptId,
+      state: 'ack_pending',
+    });
   }
 
   recordAcked(messageId: string, attemptId: string): void {
-    this.appendInbound({ at: Date.now(), message_id: messageId, attempt_id: attemptId, state: 'acked' });
+    this.appendInbound({
+      at: Date.now(),
+      message_id: messageId,
+      attempt_id: attemptId,
+      state: 'acked',
+    });
   }
 
   /** Messages injected but not yet ack_pending/acked — re-present WITH the redelivery preamble (DEL-27). */
@@ -297,7 +333,13 @@ export class Journal {
   }
 
   recordPrepared(clientId: string, contentHash: string, summary?: string): void {
-    this.appendOutbound({ at: Date.now(), client_id: clientId, state: 'prepared', content_hash: contentHash, summary });
+    this.appendOutbound({
+      at: Date.now(),
+      client_id: clientId,
+      state: 'prepared',
+      content_hash: contentHash,
+      summary,
+    });
   }
 
   recordSending(clientId: string): void {
@@ -305,7 +347,13 @@ export class Journal {
   }
 
   recordConfirmed(clientId: string, messageId: string, seq: number): void {
-    this.appendOutbound({ at: Date.now(), client_id: clientId, state: 'confirmed', message_id: messageId, seq });
+    this.appendOutbound({
+      at: Date.now(),
+      client_id: clientId,
+      state: 'confirmed',
+      message_id: messageId,
+      seq,
+    });
   }
 
   recordFailed(clientId: string, code: string): void {

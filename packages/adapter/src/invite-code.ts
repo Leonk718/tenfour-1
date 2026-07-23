@@ -13,8 +13,7 @@ import {
 import { b64urlToStr, checksum4 } from './ids.ts';
 
 export type DecodeResult =
-  | { ok: true; payload: InviteCodePayload }
-  | { ok: false; reason: 'malformed' | 'checksum' };
+  { ok: true; payload: InviteCodePayload } | { ok: false; reason: 'malformed' | 'checksum' };
 
 /** Parse `TENFOUR1.<payload_b64url>.<check>`, verify the anti-mangling checksum, parse payload. */
 export async function decodeInviteCode(code: string): Promise<DecodeResult> {

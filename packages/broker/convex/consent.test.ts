@@ -32,7 +32,12 @@ describe('consent (CONSENT.md — structured gesture, broker record)', () => {
     const res = await t.mutation(api.send.send, {
       request: sendReq(
         B.token,
-        envFor('accepted', { thread_id: seed.threadId, parent_id: seed.headId, to: A.address, body: '' }),
+        envFor('accepted', {
+          thread_id: seed.threadId,
+          parent_id: seed.headId,
+          to: A.address,
+          body: '',
+        }),
         { consent: { token, granted_via: 'cli_accept' } },
       ),
     });
@@ -64,7 +69,12 @@ describe('consent (CONSENT.md — structured gesture, broker record)', () => {
     const res = await t.mutation(api.send.send, {
       request: sendReq(
         B.token,
-        envFor('accepted', { thread_id: seed.threadId, parent_id: seed.headId, to: A.address, body: '' }),
+        envFor('accepted', {
+          thread_id: seed.threadId,
+          parent_id: seed.headId,
+          to: A.address,
+          body: '',
+        }),
         { consent: { token: mintConsentToken(), granted_via: 'cli_accept' } }, // wrong token
       ),
     });
@@ -88,7 +98,12 @@ describe('consent (CONSENT.md — structured gesture, broker record)', () => {
     const res = await t.mutation(api.send.send, {
       request: sendReq(
         A.token,
-        envFor('accepted', { thread_id: seed.threadId, parent_id: seed.headId, to: B.address, body: '' }),
+        envFor('accepted', {
+          thread_id: seed.threadId,
+          parent_id: seed.headId,
+          to: B.address,
+          body: '',
+        }),
         { consent: { token, granted_via: 'cli_accept' } },
       ),
     });

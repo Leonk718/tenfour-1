@@ -18,7 +18,17 @@ import { runStatus } from './commands/status.ts';
 import { runInbox } from './commands/inbox.ts';
 import type { CliContext } from './context.ts';
 
-const COMMANDS = ['init', 'invite', 'join', 'accept', 'approve', 'token', 'doctor', 'status', 'inbox'] as const;
+const COMMANDS = [
+  'init',
+  'invite',
+  'join',
+  'accept',
+  'approve',
+  'token',
+  'doctor',
+  'status',
+  'inbox',
+] as const;
 export type Command = (typeof COMMANDS)[number];
 
 type Handler = (argv: string[], ctx: CliContext, flags: GlobalFlags) => Promise<number>;

@@ -54,16 +54,26 @@ function loadJson<T>(file: string, schema: z.ZodType<T>): LoadResult<T> {
   }
   const parsed = schema.safeParse(raw);
   if (!parsed.success) {
-    return { ok: false, reason: 'invalid', detail: `${file}: ${parsed.error.issues[0]?.message ?? 'schema error'}` };
+    return {
+      ok: false,
+      reason: 'invalid',
+      detail: `${file}: ${parsed.error.issues[0]?.message ?? 'schema error'}`,
+    };
   }
   return { ok: true, value: parsed.data };
 }
 
-export function loadConfig(home?: string, env: NodeJS.ProcessEnv = process.env): LoadResult<TenfourConfig> {
+export function loadConfig(
+  home?: string,
+  env: NodeJS.ProcessEnv = process.env,
+): LoadResult<TenfourConfig> {
   return loadJson(tenfourPaths(home, env).configJson, TenfourConfigSchema);
 }
 
-export function loadCredentials(home?: string, env: NodeJS.ProcessEnv = process.env): LoadResult<Credentials> {
+export function loadCredentials(
+  home?: string,
+  env: NodeJS.ProcessEnv = process.env,
+): LoadResult<Credentials> {
   return loadJson(tenfourPaths(home, env).credentialsJson, CredentialsSchema);
 }
 
@@ -71,11 +81,19 @@ export function loadAdmin(home?: string, env: NodeJS.ProcessEnv = process.env): 
   return loadJson(tenfourPaths(home, env).adminJson, AdminSchema);
 }
 
-export function saveConfig(config: TenfourConfig, home?: string, env: NodeJS.ProcessEnv = process.env): void {
+export function saveConfig(
+  config: TenfourConfig,
+  home?: string,
+  env: NodeJS.ProcessEnv = process.env,
+): void {
   writeSecureFile(tenfourPaths(home, env).configJson, JSON.stringify(config, null, 2) + '\n');
 }
 
-export function saveCredentials(creds: Credentials, home?: string, env: NodeJS.ProcessEnv = process.env): void {
+export function saveCredentials(
+  creds: Credentials,
+  home?: string,
+  env: NodeJS.ProcessEnv = process.env,
+): void {
   writeSecureFile(tenfourPaths(home, env).credentialsJson, JSON.stringify(creds, null, 2) + '\n');
 }
 

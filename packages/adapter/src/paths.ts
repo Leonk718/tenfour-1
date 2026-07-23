@@ -32,7 +32,10 @@ export function resolveHome(override?: string, env: NodeJS.ProcessEnv = process.
 }
 
 /** Build the full canonical path set under a resolved TENFOUR_HOME. */
-export function tenfourPaths(override?: string, env: NodeJS.ProcessEnv = process.env): TenfourPaths {
+export function tenfourPaths(
+  override?: string,
+  env: NodeJS.ProcessEnv = process.env,
+): TenfourPaths {
   const home = resolveHome(override, env);
   const binDir = path.join(home, 'bin');
   const journalDir = path.join(home, 'journal');
@@ -53,6 +56,7 @@ export function tenfourPaths(override?: string, env: NodeJS.ProcessEnv = process
 /** The `~/.claude/settings.json` path (user scope), honoring `--home`-independent HOME. */
 export function claudeSettingsPath(env: NodeJS.ProcessEnv = process.env): string {
   const claudeHome = env.CLAUDE_CONFIG_DIR;
-  if (claudeHome && claudeHome.length > 0) return path.join(path.resolve(claudeHome), 'settings.json');
+  if (claudeHome && claudeHome.length > 0)
+    return path.join(path.resolve(claudeHome), 'settings.json');
   return path.join(os.homedir(), '.claude', 'settings.json');
 }

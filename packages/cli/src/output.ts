@@ -43,7 +43,10 @@ export function printBrokerError(error: ErrorObject): void {
 }
 
 /** Print a canonical error by code (adapter-side, e.g. local invite checksum failure). */
-export function printCodeError(code: TenfourErrorCode, vars: Record<string, string | number> = {}): void {
+export function printCodeError(
+  code: TenfourErrorCode,
+  vars: Record<string, string | number> = {},
+): void {
   if (flags.json) {
     json({ ok: false, code: `TENFOUR/${code}` });
     return;

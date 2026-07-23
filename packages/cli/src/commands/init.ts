@@ -47,14 +47,20 @@ function mergeGlobalHooks(hookEntryAbs: string, env: NodeJS.ProcessEnv): void {
   const parsed = parseSettings(file);
   if (!parsed.ok) {
     // CLI §1.1 step 2: invalid existing JSON aborts with exit 2, file untouched.
-    throw new LocalError(`~/.claude/settings.json is not valid JSON (${parsed.detail}); left untouched. Fix or remove it, then re-run tenfour init.`);
+    throw new LocalError(
+      `~/.claude/settings.json is not valid JSON (${parsed.detail}); left untouched. Fix or remove it, then re-run tenfour init.`,
+    );
   }
   if (parsed.existed) backupSettings(file);
   writeSettings(file, mergeHooks(parsed.settings, hookEntryAbs));
 }
 
 function registerMcp(mcpEntryAbs: string): boolean {
-  const res = spawnSync('claude', ['mcp', 'add', 'tenfour', '--scope', 'user', '--', 'node', mcpEntryAbs], { stdio: 'ignore' });
+  const res = spawnSync(
+    'claude',
+    ['mcp', 'add', 'tenfour', '--scope', 'user', '--', 'node', mcpEntryAbs],
+    { stdio: 'ignore' },
+  );
   return res.status === 0;
 }
 
@@ -65,12 +71,24 @@ export function baseInstall(flags: GlobalFlags, env: NodeJS.ProcessEnv = process
   copyBinEntries(paths.binDir);
   new Journal(paths.journalDir).ensure();
   mergeGlobalHooks(paths.hookEntry, env);
-  out(`merged tenfour hooks into ${claudeSettingsPath(env)} (backup written; existing hooks untouched)`);
+  out(
+    `merged tenfour hooks into ${claudeSettingsPath(env)} (backup written; existing hooks untouched)`,
+  );
   const registered = registerMcp(paths.mcpEntry);
-  out(registered ? 'registered MCP server tenfour at user scope' : 'could not run `claude mcp add` — register manually: claude mcp add tenfour --scope user -- node "' + paths.mcpEntry + '"');
+  out(
+    registered
+      ? 'registered MCP server tenfour at user scope'
+      : 'could not run `claude mcp add` — register manually: claude mcp add tenfour --scope user -- node "' +
+          paths.mcpEntry +
+          '"',
+  );
 }
 
-export async function runInit(argv: string[], ctx: CliContext, flags: GlobalFlags): Promise<number> {
+export async function runInit(
+  argv: string[],
+  ctx: CliContext,
+  flags: GlobalFlags,
+): Promise<number> {
   const env = process.env;
   const wantWorkspace = argv.includes('--workspace');
   const wantCreateBroker = argv.includes('--create-broker');
@@ -90,9 +108,15 @@ export async function runInit(argv: string[], ctx: CliContext, flags: GlobalFlag
   if (wantCreateBroker) return runCreateBroker(paths.brokerSrcDir, flags);
 
   // Step 5 — per-project gate rules are opt-in, PER-PROJECT (run inside each repo).
-  const offer = await confirm('Designate the current repo a tenfour workspace now (installs per-project gate rules)?', false, { yes });
+  const offer = await confirm(
+    'Designate the current repo a tenfour workspace now (installs per-project gate rules)?',
+    false,
+    { yes },
+  );
   if (offer) return runWorkspace(ctx, flags);
-  out('To designate a repo as a tenfour workspace later, run: tenfour init --workspace (inside that repo).');
+  out(
+    'To designate a repo as a tenfour workspace later, run: tenfour init --workspace (inside that repo).',
+  );
   return EXIT.OK;
 }
 
@@ -121,7 +145,9 @@ function runWorkspace(ctx: CliContext, flags: GlobalFlags): number {
     saveConfig(TenfourConfigSchema.parse({ ...cfgRes.value, workspaces: [...ws] }), flags.home);
     out(`tagged workspace ${repoRoot} in config.json.`);
   } else {
-    err('note: config.json not found — workspace tagging recorded locally only; run tenfour join to create config.');
+    err(
+      'note: config.json not found — workspace tagging recorded locally only; run tenfour join to create config.',
+    );
   }
   return EXIT.OK;
 }
@@ -136,8 +162,12 @@ function runCreateBroker(brokerSrcDir: string, _flags: GlobalFlags): number {
   }
   const res = spawnSync('npx', ['convex', 'deploy'], { cwd: brokerSrcDir, stdio: 'inherit' });
   if (res.status !== 0) {
-    throw new LocalError('Convex deploy failed; see the Convex output above. Fix the reported issue and re-run tenfour init --create-broker.');
+    throw new LocalError(
+      'Convex deploy failed; see the Convex output above. Fix the reported issue and re-run tenfour init --create-broker.',
+    );
   }
-  out('broker deployed. Mint the owner agent with tenfour invite, then tenfour join on the owner machine.');
+  out(
+    'broker deployed. Mint the owner agent with tenfour invite, then tenfour join on the owner machine.',
+  );
   return EXIT.OK;
 }

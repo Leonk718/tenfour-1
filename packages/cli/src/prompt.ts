@@ -21,7 +21,11 @@ async function ask(question: string): Promise<string> {
 }
 
 /** Yes/no confirm. `defaultYes` sets the answer on empty input; `--yes` returns `defaultYes`. */
-export async function confirm(question: string, defaultYes: boolean, opts: PromptOptions = {}): Promise<boolean> {
+export async function confirm(
+  question: string,
+  defaultYes: boolean,
+  opts: PromptOptions = {},
+): Promise<boolean> {
   if (opts.yes) return defaultYes;
   const suffix = defaultYes ? ' [Y/n] ' : ' [y/N] ';
   const answer = (await ask(question + suffix)).trim().toLowerCase();

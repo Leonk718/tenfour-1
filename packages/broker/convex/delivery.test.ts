@@ -30,14 +30,24 @@ describe('delivery: claim / lease / ack (DELIVERY.md)', () => {
     expect(item.prior_attempts).toBe(0);
 
     const ack = await t.mutation(api.ack.ack, {
-      request: { protocol: PROTO, auth: { token: B.token }, message_id: msgId, attempt_id: item.attempt_id },
+      request: {
+        protocol: PROTO,
+        auth: { token: B.token },
+        message_id: msgId,
+        attempt_id: item.attempt_id,
+      },
     });
     expect(ack.ok).toBe(true);
     expect(ack.delivery_state).toBe('acked');
     expect(ack.duplicate).toBe(false);
 
     const reack = await t.mutation(api.ack.ack, {
-      request: { protocol: PROTO, auth: { token: B.token }, message_id: msgId, attempt_id: item.attempt_id },
+      request: {
+        protocol: PROTO,
+        auth: { token: B.token },
+        message_id: msgId,
+        attempt_id: item.attempt_id,
+      },
     });
     expect(reack.ok).toBe(true);
     expect(reack.duplicate).toBe(true);
@@ -109,7 +119,12 @@ describe('delivery: claim / lease / ack (DELIVERY.md)', () => {
     });
     const attempt = c1.items[0].attempt_id;
     const res = await t.mutation(api.ack.ack, {
-      request: { protocol: PROTO, auth: { token: A.token }, message_id: msgId, attempt_id: attempt },
+      request: {
+        protocol: PROTO,
+        auth: { token: A.token },
+        message_id: msgId,
+        attempt_id: attempt,
+      },
     });
     expect(res.ok).toBe(false);
     expect(res.error.code).toBe('TENFOUR/NOT_THREAD_PARTY');

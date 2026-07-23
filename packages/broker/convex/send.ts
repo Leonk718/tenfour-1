@@ -240,7 +240,9 @@ export const send = mutation({
       parent_id: (rawEnv.parent_id as string | null) ?? null,
       in_reply_to: (rawEnv.in_reply_to as string | null) ?? null,
       repo: (rawEnv.repo as string | null) ?? null,
-      artifacts: (Array.isArray(rawEnv.artifacts) ? rawEnv.artifacts : []) as ContentHashInput['artifacts'],
+      artifacts: (Array.isArray(rawEnv.artifacts)
+        ? rawEnv.artifacts
+        : []) as ContentHashInput['artifacts'],
     };
     let hash: string;
     try {
@@ -437,7 +439,11 @@ export const send = mutation({
       return berr('UNKNOWN_KIND', {
         vars: { kind },
         reason: 'illegal_in_state',
-        data: { state: effState, kind, legal_kinds: legalKindsFor(thread.root_kind, effState, role) },
+        data: {
+          state: effState,
+          kind,
+          legal_kinds: legalKindsFor(thread.root_kind, effState, role),
+        },
       });
     }
     if (cell.t === 'role_forbidden') {
@@ -477,8 +483,7 @@ export const send = mutation({
       const seen = new Set(thread.referenced_repo_shas);
       const newArtifact = envelope.artifacts.some(
         (a) =>
-          (a.type === 'git_commit' || a.type === 'git_branch') &&
-          !seen.has(`${a.repo} ${a.sha}`),
+          (a.type === 'git_commit' || a.type === 'git_branch') && !seen.has(`${a.repo} ${a.sha}`),
       );
       scopeExpanding = repoChanged || newArtifact;
       if (scopeExpanding) newStatus = 'offered';
@@ -497,14 +502,22 @@ export const send = mutation({
       const block = req.consent;
       if (!block || thread.consent_token === null || block.token !== thread.consent_token) {
         return berr('CONSENT_REQUIRED', {
-          vars: { operation: 'send:accepted', thread_short: tShort, consent_state: consentStateOf(thread) },
+          vars: {
+            operation: 'send:accepted',
+            thread_short: tShort,
+            consent_state: consentStateOf(thread),
+          },
           reason: 'bad_token',
         });
       }
     }
     if (kind === 'result' && consentStateOf(thread) !== 'granted') {
       return berr('CONSENT_REQUIRED', {
-        vars: { operation: 'send:result', thread_short: tShort, consent_state: consentStateOf(thread) },
+        vars: {
+          operation: 'send:result',
+          thread_short: tShort,
+          consent_state: consentStateOf(thread),
+        },
         reason: 'consent_not_granted',
       });
     }
@@ -548,8 +561,7 @@ export const send = mutation({
     const id = ulid(now);
     const seq = thread.head_seq + 1;
     const inbox_seq = await nextInboxSeq(ctx, to);
-    const newConsentToken =
-      kind === 'change_request' && scopeExpanding ? mintConsentToken() : null;
+    const newConsentToken = kind === 'change_request' && scopeExpanding ? mintConsentToken() : null;
 
     let finalStatus: ThreadStatus;
     let finalResume: ThreadStatus | null = null;

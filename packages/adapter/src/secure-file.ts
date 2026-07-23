@@ -12,7 +12,11 @@ import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 /** Write bytes to `file` atomically, then tighten permissions to sole-user (0600/icacls). */
-export function writeSecureFile(file: string, contents: string, platform: NodeJS.Platform = process.platform): void {
+export function writeSecureFile(
+  file: string,
+  contents: string,
+  platform: NodeJS.Platform = process.platform,
+): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
   const fd = fs.openSync(tmp, 'w', 0o600);
@@ -61,7 +65,10 @@ export function checkPerms(file: string, platform: NodeJS.Platform = process.pla
   }
   const mode = fs.statSync(file).mode & 0o777;
   if ((mode & 0o077) !== 0) {
-    return { ok: false, detail: `mode ${mode.toString(8)} is group/world accessible; expected 600` };
+    return {
+      ok: false,
+      detail: `mode ${mode.toString(8)} is group/world accessible; expected 600`,
+    };
   }
   return { ok: true, detail: `mode ${mode.toString(8)}` };
 }

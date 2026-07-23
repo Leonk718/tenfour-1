@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.base.json",
+  "include": [
+    "packages/schema/src/**/*.ts",
+    "packages/broker/convex/**/*.ts",
+    "packages/adapter/src/**/*.ts",
+    "packages/cli/src/**/*.ts"
+  ],
+  "exclude": ["**/node_modules", "**/dist"]
+}

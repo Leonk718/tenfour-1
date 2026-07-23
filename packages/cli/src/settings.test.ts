@@ -31,7 +31,9 @@ describe('mergeHooks', () => {
   });
 
   it('never clobbers a pre-existing non-tenfour hook', () => {
-    const existing = { hooks: { Stop: [{ hooks: [{ type: 'command' as const, command: 'node /my/own/hook.js' }] }] } };
+    const existing = {
+      hooks: { Stop: [{ hooks: [{ type: 'command' as const, command: 'node /my/own/hook.js' }] }] },
+    };
     const merged = mergeHooks(existing, HOOK);
     const stopCmds = merged.hooks!.Stop!.flatMap((x) => x.hooks).map((h) => h.command);
     expect(stopCmds).toContain('node /my/own/hook.js'); // preserved
@@ -45,9 +47,25 @@ describe('mergeHooks', () => {
   });
 
   it('replaces the owned entry in place on upgrade (no duplicate)', () => {
-    const stale = { hooks: { SessionStart: [{ matcher: 'startup', hooks: [{ type: 'command' as const, command: `node "/old/hook.mjs" session-start ${HOOK_SENTINEL}` }] }] } };
+    const stale = {
+      hooks: {
+        SessionStart: [
+          {
+            matcher: 'startup',
+            hooks: [
+              {
+                type: 'command' as const,
+                command: `node "/old/hook.mjs" session-start ${HOOK_SENTINEL}`,
+              },
+            ],
+          },
+        ],
+      },
+    };
     const merged = mergeHooks(stale, HOOK);
-    const owned = merged.hooks!.SessionStart!.filter((x) => x.hooks.some((h) => h.command.includes(HOOK_SENTINEL)));
+    const owned = merged.hooks!.SessionStart!.filter((x) =>
+      x.hooks.some((h) => h.command.includes(HOOK_SENTINEL)),
+    );
     expect(owned).toHaveLength(1); // replaced, not duplicated
     expect(owned[0].hooks[0].command).toContain(HOOK); // upgraded to the new path
   });
@@ -62,7 +80,9 @@ describe('mergeHooks', () => {
 describe('tenfourHookEntries', () => {
   it('double-quotes the absolute path and carries the sentinel + timeouts', () => {
     const e = tenfourHookEntries('/Users/Jonathan Smith/.tenfour/bin/tenfour-hook.mjs');
-    expect(e.SessionStart.hooks[0].command).toBe('node "/Users/Jonathan Smith/.tenfour/bin/tenfour-hook.mjs" session-start --tenfour-hook-v1');
+    expect(e.SessionStart.hooks[0].command).toBe(
+      'node "/Users/Jonathan Smith/.tenfour/bin/tenfour-hook.mjs" session-start --tenfour-hook-v1',
+    );
     expect(e.SessionStart.hooks[0].timeout).toBe(15);
     expect(e.SessionStart.matcher).toBe('startup|resume|clear|compact');
   });

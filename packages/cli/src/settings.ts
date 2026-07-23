@@ -39,15 +39,24 @@ interface Settings {
 export function tenfourHookEntries(hookEntryAbsPath: string): Record<SettingsHookEvent, HookEntry> {
   const cmd = (event: string): string => `node "${hookEntryAbsPath}" ${event} ${HOOK_SENTINEL}`;
   return {
-    SessionStart: { matcher: 'startup|resume|clear|compact', hooks: [{ type: 'command', command: cmd('session-start'), timeout: 15 }] },
-    UserPromptSubmit: { hooks: [{ type: 'command', command: cmd('user-prompt-submit'), timeout: 5 }] },
-    PostToolUse: { matcher: '*', hooks: [{ type: 'command', command: cmd('post-tool-use'), timeout: 5 }] },
+    SessionStart: {
+      matcher: 'startup|resume|clear|compact',
+      hooks: [{ type: 'command', command: cmd('session-start'), timeout: 15 }],
+    },
+    UserPromptSubmit: {
+      hooks: [{ type: 'command', command: cmd('user-prompt-submit'), timeout: 5 }],
+    },
+    PostToolUse: {
+      matcher: '*',
+      hooks: [{ type: 'command', command: cmd('post-tool-use'), timeout: 5 }],
+    },
     Stop: { hooks: [{ type: 'command', command: cmd('stop'), timeout: 10 }] },
   };
 }
 
 const entryIsTenfourOwned = (entry: HookEntry): boolean =>
-  Array.isArray(entry.hooks) && entry.hooks.some((h) => typeof h.command === 'string' && h.command.includes(HOOK_SENTINEL));
+  Array.isArray(entry.hooks) &&
+  entry.hooks.some((h) => typeof h.command === 'string' && h.command.includes(HOOK_SENTINEL));
 
 export type ParseResult =
   | { ok: true; settings: Settings; existed: boolean }
