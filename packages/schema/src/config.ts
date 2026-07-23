@@ -13,7 +13,7 @@
  */
 
 import { z } from 'zod';
-import { AgentNameSchema, RepoSlugSchema } from './protocol.js';
+import { AgentNameSchema, RepoSlugSchema } from './protocol.ts';
 
 /** Array elements must be unique (byte equality). */
 const isUnique = <T>(arr: readonly T[]): boolean => new Set(arr).size === arr.length;
