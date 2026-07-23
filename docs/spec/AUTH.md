@@ -154,7 +154,7 @@ triggers each adjacent pair out of order and asserts the earlier check wins.
 | Rule | Requirement |
 |---|---|
 | PAIR-7 | `send` is authorized ONLY when the authenticated sender and the envelope `to` are the two members of the active pair. Anything else ⇒ `TENFOUR/PAIR_FORBIDDEN`. This includes: `to` an address that does not exist, `to` a revoked agent, `to` `tenfour/system`, and `to` = self (**DECIDED HERE**: self-send is `PAIR_FORBIDDEN`; the paired peer is by definition not yourself). One error condition, one code — no oracle distinguishing "no such agent" from "not your peer" (ENUM-2). |
-| PAIR-8 | The pair check reads pair state inside the same transaction as the send write. A send racing a `revokeAgent` either fully precedes it (message lands, then PAIR-5 freeze applies) or fully follows it (`PAIR_FORBIDDEN` — sender revoked mid-flight would instead fail step 2 with `AUTH_REVOKED`). No torn state. |
+| PAIR-8 | The pair check reads pair state inside the same transaction as the send write. A send racing a `revokeAgent` either fully precedes it (message lands; PAIR-5 leaves threads untouched — no freeze, no system post) or fully follows it (`PAIR_FORBIDDEN` — sender revoked mid-flight would instead fail step 2 with `AUTH_REVOKED`). No torn state. |
 
 ## 5. Repo and gate scope note (non-normative pointer)
 

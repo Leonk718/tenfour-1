@@ -40,9 +40,9 @@ spillage. **Out of scope**: malicious co-founder, broker-operator confidentialit
 
 | # | Attack | Verdict | Escalation |
 |---|---|---|---|
-| A1 | Injected fake "go" consent | **COVERED, but the grant path is specified two incompatible ways** | §3 C-1, C-2, C-6, C-11 (BLOCKING/MAJOR) |
+| A1 | Injected fake "go" consent | **COVERED** — sole grant path: CLI `tenfour accept` → `send {kind:accepted, consent{token,granted_via}}`; no MCP confirm tool, no `consent.grant` method | resolved (was C-1/C-2/C-6/C-11) |
 | A2 | Stale demoted session sending / injecting | COVERED | §3 C-13 (MAJOR: reclaim window), residual R2 (MINOR) |
-| A3 | Malicious remote in artifact `repo`/`url` | **PARTIAL — SSRF covered; host-allowlist + link-smuggling defense INOPERABLE** | §3 C-3 (BLOCKING) |
+| A3 | Malicious remote in artifact `repo`/`url` | **COVERED** — no auto-fetch (SSRF class removed); three-segment host/owner/name grammar + host allowlist + PR url host-match (ART-049b) | resolved (was C-3) |
 | A4 | Invite replay / expiry abuse | **PARTIAL — replay covered; tamper-checksum + expiry defense contradictory** | §3 C-4 (BLOCKING), C-9 (MAJOR) |
 | A5 | Duplicate ambiguity (retry + content drift) | COVERED | — |
 | A6 | Crash at every journal point | COVERED | — |
@@ -79,17 +79,12 @@ confirm tool unprompted, echoing a token it can read.
 | Model calls a would-be consent MCP tool | there is NO MCP consent tool (B1; CONSENT §3.2, F-3); the served surface is EXACTLY `tenfour_send`/`tenfour_ack`/`tenfour_thread`/`tenfour_wait`, and `tenfour_send` rejects `kind:accepted` (MCP-010); doctor `consent-surface` (check 13) FAILs on any served consent/confirm tool | **ADV-03**: register a consent/confirm MCP tool (or make `tenfour_send` accept `kind:accepted`) → doctor `consent-surface` FAILs | COVERED — the model has no MCP consent surface to call; acceptance is the human's CLI `tenfour accept` gesture |
 | Token echo binds to surfaced version | CONSENT.md §4 (single-use, rotates on trigger); WIRE §5.5 D16 (token role-checked) | **ADV-04**: grant with a rotated/stale token → `CONSENT_REQUIRED` `reason:bad_token`; no record | COVERED |
 
-**Residual / escalation.** The *mechanism* is sound, but the **grant path itself is
-specified two mutually exclusive ways** — see **§3 C-1** (WIRE/`protocol.ts`: consent is
-granted by *sending* `kind:accepted` with a `consent{token,granted_via}` block on the
-`send` method; CONSENT.md: `send` MUST reject `accepted` and consent is granted by a
-dedicated `consent.grant` control-plane method). The two readings disagree on **who
-authors the `accepted` message** (adapter — STATE [C]/CLI-MCP §2.5 — vs broker —
-CONSENT §3.5), on the **method surface**, and on the **`consent_state` vocabulary**
-(§3 C-2) and **confirm-tool name** (§3 C-6). A hostile implementer building to
-`protocol.ts` gets model-visible `accepted`+token on the ordinary send channel; one
-building to CONSENT.md gets a separate gated method. The defense is real but
-**not conformance-testable as one system.** → **BLOCKING (C-1, C-2)**, MAJOR (C-6, C-11).
+**Residual / escalation.** RESOLVED. The grant path is now single-authority: consent is
+granted by *sending* `kind:accepted` with a `consent{token, granted_via}` block on the
+`send` method (protocol.ts `SendRequestSchema`; WIRE §7.1). There is no `consent.grant`
+method and no MCP confirm tool; the `accepted` message is adapter-authored via the CLI
+`tenfour accept` gesture, `granted_via ∈ {cli_accept, standing_rule}`. One system, one
+grant path, conformance-testable. No BLOCKING residual.
 
 ### A2 — Stale / demoted session sending and injecting
 
@@ -313,7 +308,7 @@ presence `mark` that leaves no audit trail.
 |---|---|---|---|
 | Flood | WIRE §10 (`diag.ping` 30/60 s); `protocol.ts RATE_LIMITS['diag.ping']` | **ADV-49**: >30 pings/min → `RATE_LIMITED` | COVERED — but see C-12 |
 | Agent enumeration | AUTH READ-6 (MUST NOT leak other agents' existence/inbox/thread; response limited to reachability/time/versions/own-address echo) | **ADV-50**: authenticated `diag.ping` never reveals a non-peer agent | COVERED for non-peers |
-| Peer-state leak | WIRE §8.1 D26 (`peer` field readable only by the paired peer, 24 h TTL) | **ADV-51**: `peer` field present only for the one paired agent | **Contradictory — see C-8** |
+| Peer-state leak | WIRE §8.1 D26 (`peer` field readable only by the paired peer, 24 h TTL) | **ADV-51**: `peer` field present only for the one paired agent | **Resolved (C-8): peer presence readable only by the paired peer** |
 | No thread/round pollution | WIRE §8.1 (excluded from threads/rounds/inbox/retention — R6); AUTH READ-6 | **ADV-52**: `diag.ping` traffic never appears in `inbox`/`thread` (WIRE §11.6) | COVERED |
 
 **Residual / escalation.**
@@ -397,18 +392,19 @@ Every `ADV-nn` above is a required fixture under the DESIGN R13 gate. Grouping:
 |---|---|---|
 | Consent gesture integrity | ADV-01…04 | CONSENT P2/F-1/F-2/F-3/§3.2/§4; CLI-MCP MCP-010 |
 | Session lease / demotion | ADV-05…08 | DELIVERY DEL-05/06/08/14/15/16/17; AUTH SUB-5 |
-| Artifact remote safety | ADV-09…12 | DESIGN §4.5; ARTIFACTS §8.3/ART-030-032/049b/087; **blocked by C-3** |
-| Invite lifecycle | ADV-13…18 | AUTH INV-4/5/6/7/§6.2, ENUM-3; WIRE §8.3/8.4/D30; **blocked by C-4** |
+| Artifact remote safety | ADV-09…12 | DESIGN §4.5; ARTIFACTS §8.3/ART-030-032/049b/087; **resolved (C-3): three-segment host/owner/name grammar + host allowlist** |
+| Invite lifecycle | ADV-13…18 | AUTH INV-4/5/6/7/§6.2, ENUM-3; WIRE §8.3/8.4/D30; **resolved (C-4): single invite code format, WIRE §8.3/8.4** |
 | Idempotency / dedup | ADV-19…22 | WIRE §6/§7.1; `protocol.ts` vector; DELIVERY DEL-35/36/38 |
 | Crash matrix | ADV-23…32 | DELIVERY §8 C1–C14, §5.3, §9; STATE §8.4 |
 | Round containment | ADV-33…36 | STATE §8.2/§8.3/§8.4; WIRE §7.1/§11.7; DELIVERY DEL-42 |
-| Rate / flooding | ADV-37…40 | STATE §9; WIRE §10; AUTH ENUM-3; **value blocked by C-5** |
+| Rate / flooding | ADV-37…40 | STATE §9; WIRE §10; AUTH ENUM-3; **resolved (C-5): rate ceilings per WIRE §10 / protocol.ts RATE_LIMITS** |
 | DLP / secrets | ADV-41…44 | WIRE §7.1 step 7; ARTIFACTS §9; AUTH CRED-4 |
-| Revocation / subscription | ADV-45…48 | AUTH REV-2/4, SUB-2/3/4, ROT-1/4; DELIVERY DEL-41; **subscribe blocked by C-7** |
-| diag.ping | ADV-49…52 | WIRE §8.1/§10/§11.6; AUTH READ-6; **peer field blocked by C-8** |
+| Revocation / subscription | ADV-45…48 | AUTH REV-2/4, SUB-2/3/4, ROT-1/4; DELIVERY DEL-41; **resolved (C-7): subscription is a transport-layer Convex reactive query, not a wire method** |
+| diag.ping | ADV-49…52 | WIRE §8.1/§10/§11.6; AUTH READ-6; **resolved (C-8): peer presence readable only by the paired peer** |
 
-Anchors marked "blocked by C-n" above were the original release gates; **every C-n is now
-resolved (§3)**, so each fixture is authorable against the single current value.
+The C-1…C-14 items that were the original release gates are **all resolved (§3)** and
+replaced above with their single current authoritative value, so every fixture is
+authorable against one authority.
 
 ---
 

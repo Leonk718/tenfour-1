@@ -197,9 +197,34 @@ export const RepoSlugSchema = z
     if (err) ctx.addIssue({ code: 'custom', message: `RepoSlug ${err} (ARTIFACTS §2.1)` });
   });
 export const ShaSchema = z.string().regex(SHA_REGEX, 'Sha: 40 or 64 lowercase hex');
+
+/**
+ * Full git check-ref-format grammar (ARTIFACTS ART-046). A single regex cannot express
+ * the per-component rules (no component begins with '.' or ends with '.lock'), so this
+ * predicate is the authority; GIT_REF_REGEX stays exported as a coarse char-class filter.
+ */
+export function gitRefValid(ref: string): boolean {
+  if (ref.length === 0) return false;
+  if (ref === '@') return false; // a bare '@' is not a valid ref
+  if (ref.startsWith('-')) return false; // no leading dash (tenfour rule)
+  if (ref.startsWith('refs/')) return false; // no refs/ prefix (tenfour rule)
+  if (ref.startsWith('/') || ref.endsWith('/')) return false; // no leading/trailing slash
+  if (ref.endsWith('.')) return false; // no trailing dot
+  if (ref.includes('..') || ref.includes('//') || ref.includes('@{')) return false;
+  // disallowed chars: ASCII control (incl. space), ~ ^ : ? * [ \ and DEL
+  // eslint-disable-next-line no-control-regex
+  if (/[\x00-\x20\x7f~^:?*[\\]/.test(ref)) return false;
+  for (const comp of ref.split('/')) {
+    if (comp.length === 0) return false; // no empty component (covers //)
+    if (comp.startsWith('.')) return false; // no component begins with '.'
+    if (comp.endsWith('.lock')) return false; // no component ends with '.lock'
+  }
+  return true;
+}
+
 export const GitRefSchema = z
   .string()
-  .regex(GIT_REF_REGEX, 'GitRef: git check-ref-format grammar (ARTIFACTS ART-046)')
+  .refine(gitRefValid, 'GitRef: git check-ref-format grammar (ARTIFACTS ART-046)')
   .refine((s) => new TextEncoder().encode(s).byteLength <= LIMITS.REF_MAX_CHARS, {
     message: `GitRef exceeds ${LIMITS.REF_MAX_CHARS} UTF-8 bytes (ART-045)`,
   });
@@ -443,7 +468,11 @@ function sharedEnvelopeRefinement(env: RefinableEnvelope, ctx: z.RefinementCtx):
   const artifacts = env.artifacts ?? [];
   const systemPost = isSystemFanout(env);
 
-  // ── Size caps (B10 canonicalBytes — the sole measurement)
+  // ── Size caps (B10). Two well-defined measurements, both UTF-8 bytes:
+  //   • body cap  = utf8Bytes of the NFC-normalized body string (a single string, so a
+  //     direct byte count is the correct and only sensible measure — NOT canonical JSON).
+  //   • envelope + artifact caps = canonicalBytes (canonical JSON: sorted keys, NFC
+  //     strings, undefined omitted). These are the sole envelope/artifact measurements.
   if (utf8Bytes(normalizeBody(env.body)) > LIMITS.BODY_MAX_BYTES) {
     issue(`body exceeds ${LIMITS.BODY_MAX_BYTES} UTF-8 bytes (BODY_TOO_LARGE)`, ['body']);
   }
@@ -474,10 +503,13 @@ function sharedEnvelopeRefinement(env: RefinableEnvelope, ctx: z.RefinementCtx):
       const uErr = urlError(a.url, a.repo);
       if (uErr) issue(`artifact[${i}].url ${uErr} (ARTIFACT_INVALID)`, ['artifacts', i, 'url']);
     }
+    // ART-060: uniqueness is the (type, repo, ref) tuple. Including `type` lets a
+    // git_commit and git_branch sharing the same (repo, ref) coexist (legal), while
+    // two artifacts of the SAME type + repo + ref are the duplicate that's rejected.
     const key =
       a.type === 'pull_request'
-        ? `pr ${a.repo} ${a.number}`
-        : `sha_ref ${a.repo} ${a.ref}`;
+        ? `pull_request ${a.repo} ${a.number}`
+        : `${a.type} ${a.repo} ${a.ref}`;
     if (seen.has(key)) {
       issue(`duplicate artifact at index ${i} (ARTIFACT_INVALID, duplicate_artifact)`, ['artifacts', i]);
     }
@@ -806,6 +838,21 @@ export const ThreadSchema = z
       issue(`resume_state must be one of ${RESUME_STATES.join(', ')}`, ['resume_state']);
     }
 
+    // B8 — resume_state MUST be valid for the root kind: a task thread resumes to
+    // offered|in_progress|review (never "open"); a question micro-thread resumes only
+    // to "open". This rejects impossible combos like a frozen task with resume_state
+    // "open" or a frozen question with resume_state "in_progress".
+    if (t.resume_state !== null) {
+      const allowedResume =
+        t.root_kind === 'task' ? ['offered', 'in_progress', 'review'] : ['open'];
+      if (!allowedResume.includes(t.resume_state)) {
+        issue(
+          `resume_state "${t.resume_state}" is illegal for a ${t.root_kind} thread (allowed: ${allowedResume.join(', ')})`,
+          ['resume_state'],
+        );
+      }
+    }
+
     // B8 — status===frozen ⇔ resume_state & frozen_reason & frozen_by all present, else all null
     const frozenTriplePresent =
       t.resume_state !== null && t.frozen_reason !== null && t.frozen_by !== null;
@@ -925,83 +972,97 @@ export const RawSendRequestSchema = z.object({
 });
 export type RawSendRequest = z.infer<typeof RawSendRequestSchema>;
 
-export type ValidateSendResult =
-  | { ok: true; value: SendRequest }
+export type CheckResult<T> =
+  | { ok: true; value: T }
   | { ok: false; code: ErrorCode; reason?: string; human_action: string };
 
-const VALIDATE_SEND_HUMAN_ACTION: Partial<Record<ErrorCode, string>> = {
+export type ValidateSendResult = CheckResult<SendRequest>;
+
+/**
+ * Human-action strings for the ONLY error codes the request-decidable checkpoints can
+ * return. AUTH_FAILED / PAIR_FORBIDDEN are deliberately absent: those are broker DB
+ * verdicts (steps 2–3), not request-shape verdicts, so this layer never returns them.
+ */
+const CHECK_HUMAN_ACTION: Partial<Record<ErrorCode, string>> = {
   'TENFOUR/UNSUPPORTED_VERSION': 'Tell your human to update the tenfour package on this machine.',
-  'TENFOUR/AUTH_FAILED': "Tell your human to run 'tenfour doctor' — this is a setup problem.",
-  'TENFOUR/PAIR_FORBIDDEN': 'Tell your human — pairing is a human act; you cannot add peers.',
   'TENFOUR/UNKNOWN_KIND': 'Choose the kind that matches your intent; if none fits, tell your human.',
   'TENFOUR/BODY_TOO_LARGE':
     'Put the detail in a pushed commit or PR and send a short body carrying the artifact reference.',
   'TENFOUR/ARTIFACT_INVALID': 'Fix the named artifact field. For an unpushed sha: push first, then send.',
 };
 
+function checkFail(code: ErrorCode, reason?: string): { ok: false; code: ErrorCode; reason?: string; human_action: string } {
+  return { ok: false, code, reason, human_action: CHECK_HUMAN_ACTION[code] ?? 'Tell your human.' };
+}
+
 /**
- * B9: `safeParse` is NOT the send validator. The wire contract is an ORDERED 13-step
- * precedence (WIRE §7.1 D19 / STATE §3 / AUTH §3.4) whose FIRST failing step wins with
- * exactly one typed error. validateSend runs the request-decidable prefix of that order
- * over a permissive RawSendRequestSchema parse:
+ * B9: the broker's send mutation is the ONLY place the full ordered 13-step precedence
+ * (WIRE §7.1 D19 / STATE §3 / AUTH §3.4) is enforced. This module cannot decide the
+ * DB-dependent steps, so it exposes the two REQUEST-DECIDABLE checkpoints the broker
+ * calls at their precedence points and NEVER returns an auth/pair/dedup/etc. verdict
+ * that a higher-precedence DB step could preempt. The broker's order is:
  *
- *   1 version → 2 auth → 3 pair → [4 dedup, 5 rate: broker state] →
- *   6 schema/caps+normalization → [7 secret, 8 thread/party, 9 state machine, 10 head,
- *   11 consent, 12 repo allowlist, 13 round: broker state] → commit.
- *
- * An unrecognized kind is TENFOUR/UNKNOWN_KIND (unrecognized_kind) here. The bracketed
- * steps require broker state and run inside the broker mutation once this returns ok.
+ *   step 1      checkVersion(raw)          — run FIRST, before anything
+ *   steps 2–5   broker DB: auth validity, pair membership, client_id dedup, rate
+ *   steps 6–7   checkSendSemantics(raw)    — kind, schema, caps, normalization, artifacts
+ *   steps 8–13  broker DB: thread/party, state machine, head, consent, allowlist, round
+ *   commit
  */
-export function validateSend(raw: unknown): ValidateSendResult {
-  const fail = (code: ErrorCode, reason?: string): ValidateSendResult => ({
-    ok: false,
-    code,
-    reason,
-    human_action: VALIDATE_SEND_HUMAN_ACTION[code] ?? 'Tell your human.',
-  });
 
+/** Step 1: version. The one fully request-decidable step with no higher-precedence step. */
+export function checkVersion(raw: unknown): CheckResult<RawSendRequest> {
   const parsed = RawSendRequestSchema.safeParse(raw);
-  if (!parsed.success) return fail(ErrorCode.UNKNOWN_KIND, 'malformed_request');
+  if (!parsed.success) return checkFail(ErrorCode.UNKNOWN_KIND, 'malformed_request');
   const r = parsed.data;
-
-  // 1 — version (request + envelope must match a supported version)
   if (r.protocol !== PROTOCOL_VERSION || r.envelope.protocol !== PROTOCOL_VERSION) {
-    return fail(ErrorCode.UNSUPPORTED_VERSION);
+    return checkFail(ErrorCode.UNSUPPORTED_VERSION);
   }
-  // 2 — auth token shape
-  const token = r.auth?.token;
-  if (typeof token !== 'string' || !BEARER_TOKEN_REGEX.test(token)) {
-    return fail(ErrorCode.AUTH_FAILED);
+  return { ok: true, value: r };
+}
+
+/**
+ * Steps 6–7: kind recognition (UNKNOWN_KIND, never a Zod enum error), then the full
+ * request/envelope schema, caps, and artifact rules with the body NFC-normalized first
+ * (B4). The broker MUST call this only AFTER clearing DB steps 2–5, so a step-6 verdict
+ * can never preempt a higher-precedence step-2..5 failure in the real pipeline.
+ */
+export function checkSendSemantics(raw: RawSendRequest): ValidateSendResult {
+  if (!(KINDS as readonly string[]).includes(raw.envelope.kind as string)) {
+    return checkFail(ErrorCode.UNKNOWN_KIND, 'unrecognized_kind');
   }
-  // 3 — pair: `to` is an agent name and not the reserved tenfour/* namespace
-  const to = r.envelope.to;
-  if (typeof to !== 'string' || !AGENT_NAME_REGEX.test(to) || to.startsWith(RESERVED_AGENT_PREFIX)) {
-    return fail(ErrorCode.PAIR_FORBIDDEN);
-  }
-  // 6a — kind recognized (UNKNOWN_KIND, never a Zod enum error)
-  if (!(KINDS as readonly string[]).includes(r.envelope.kind)) {
-    return fail(ErrorCode.UNKNOWN_KIND, 'unrecognized_kind');
-  }
-  // 6b — full request/envelope schema, caps, artifact rules; body normalized first (B4)
   const normalized = {
-    ...r,
+    ...raw,
     envelope: {
-      ...r.envelope,
-      body: typeof r.envelope.body === 'string' ? normalizeBody(r.envelope.body) : r.envelope.body,
+      ...raw.envelope,
+      body: typeof raw.envelope.body === 'string' ? normalizeBody(raw.envelope.body) : raw.envelope.body,
     },
   };
   const full = SendRequestSchema.safeParse(normalized);
   if (!full.success) {
     const msg = full.error.issues[0]?.message ?? '';
     if (/exceeds .* UTF-8 bytes|BODY_TOO_LARGE/.test(msg) && !/artifacts? /.test(msg)) {
-      return fail(ErrorCode.BODY_TOO_LARGE);
+      return checkFail(ErrorCode.BODY_TOO_LARGE);
     }
     if (/artifact|ARTIFACT|url|repo|RepoSlug|GitRef|Sha|not_nfc|duplicate/i.test(msg)) {
-      return fail(ErrorCode.ARTIFACT_INVALID);
+      return checkFail(ErrorCode.ARTIFACT_INVALID);
     }
-    return fail(ErrorCode.UNKNOWN_KIND, 'malformed_for_kind');
+    return checkFail(ErrorCode.UNKNOWN_KIND, 'malformed_for_kind');
   }
   return { ok: true, value: full.data };
+}
+
+/**
+ * Convenience composing the two request-decidable checkpoints (checkVersion then
+ * checkSendSemantics). It is NOT the authorization gate: it does not decide auth, pair,
+ * dedup, rate, thread state, head, consent, allowlist, or round — those are the broker's
+ * DB steps, interleaved BETWEEN and AFTER these checkpoints per the order above. Use it
+ * for request-shape validation and tests; the broker calls the checkpoints as discrete
+ * steps so DB-step precedence is never violated.
+ */
+export function validateSend(raw: unknown): ValidateSendResult {
+  const v = checkVersion(raw);
+  if (!v.ok) return v;
+  return checkSendSemantics(v.value);
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -1351,4 +1412,16 @@ export const CONFORMANCE_FIXTURES: readonly ConformanceFixture[] = [
   // ART-071 — artifact strings must be NFC (NFC ref accepts; the same ref in NFD rejects)
   { art: 'ART-071', rule: 'artifact NFC', expect: 'accept', envelope: _fixTask({ artifacts: [_commit({ ref: _NFD_REF.normalize('NFC') })] }) },
   { art: 'ART-071', rule: 'artifact NFC', expect: 'reject', envelope: _fixTask({ artifacts: [_commit({ ref: _NFD_REF })] }) },
+  // ART-046 — git check-ref-format beyond the refs/ prefix
+  { art: 'ART-046', rule: 'ref no trailing slash', expect: 'reject', envelope: _fixTask({ artifacts: [_commit({ ref: 'feature/' })] }) },
+  { art: 'ART-046', rule: 'ref no .lock component', expect: 'reject', envelope: _fixTask({ artifacts: [_commit({ ref: 'feature.lock/x' })] }) },
+  { art: 'ART-046', rule: 'ref no double slash', expect: 'reject', envelope: _fixTask({ artifacts: [_commit({ ref: 'a//b' })] }) },
+  { art: 'ART-046', rule: 'ref no dot-leading component', expect: 'reject', envelope: _fixTask({ artifacts: [_commit({ ref: 'foo/.bar' })] }) },
+  { art: 'ART-046', rule: 'ref slash namespace legal', expect: 'accept', envelope: _fixTask({ artifacts: [_commit({ ref: 'release/2.1' })] }) },
+  // ART-060 — a git_commit and git_branch sharing (repo, ref) are DISTINCT tuples (accept)
+  { art: 'ART-060', rule: 'cross-type same ref is legal', expect: 'accept', envelope: _fixTask({ artifacts: [_commit({ ref: 'main', sha: _FIX_SHA }), { type: 'git_branch', repo: 'github.com/careswift/web', ref: 'main', sha: _FIX_SHA2 }] }) },
+  // ART-023 — owner/name never "."/".."
+  { art: 'ART-023', rule: 'no dot owner segment', expect: 'reject', envelope: _fixTask({ artifacts: [_commit({ repo: 'github.com/./web' })] }) },
+  // ART-024 — host <= 253 chars (multi-label host that passes the regex but exceeds the byte cap)
+  { art: 'ART-024', rule: 'host <= 253 chars', expect: 'reject', envelope: _fixTask({ artifacts: [_commit({ repo: `${Array(5).fill('a'.repeat(60)).join('.')}/careswift/web` })] }) },
 ] as const;

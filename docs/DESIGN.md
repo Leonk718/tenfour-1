@@ -270,9 +270,10 @@ Doctor uses the same method plus an isolated temp journal — never live protoco
 **R7 — Duplicate sends return the canonical original envelope + its current
 `delivery_state`** (`queued|claimed|injected|acked`), never a bare "already delivered"
 claim.
-**R8 — `accepted` requires a structured gesture**: `tenfour accept <thread>` (CLI) or
-the MCP confirm tool echoing a consent token from the surfaced message. Natural-
-language "go" detection is explicitly rejected as an authorization mechanism.
+**R8 — `accepted` requires a structured gesture**: the CLI `tenfour accept <thread>`
+command, or a standing-rule config match. There is NO MCP confirm tool — the served MCP
+surface is exactly four tools (send/ack/thread/wait). Natural-language "go" detection is
+explicitly rejected as an authorization mechanism.
 **R9 — Consent is a broker record**, `{thread_id, granted_via_gesture, scope:
 whole_thread, revocable}`; a `change_request` that adds new artifacts or changes the
 target repo triggers re-consent. Standing-rule consent is declared in config, not

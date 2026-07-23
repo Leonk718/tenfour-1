@@ -36,8 +36,7 @@ The mailbox metaphor governs every string: tenfour is a mailbox, not a doorbell.
 
 ## 3. Setup journey (asymmetric — only one founder ever touches Convex)
 
-- **Distribution**: `npm install -g <pkg>` (name: npm re-checked July 23 — tenfour /
-  redphone / crossband all AVAILABLE, DESIGN §12; final pick pending founder). Broker source
+- **Distribution**: `npm install -g tenfour` (name DECIDED and published on npm — DESIGN §12). Broker source
   ships inside the package; `tenfour init --create-broker` runs the Convex CLI against a
   bundled staging dir. **Jonathan needs no Convex account, ever.**
 - **Owner flow (Brian, macOS, ~6 min)**: `init --create-broker` → convex login/deploy →
@@ -93,7 +92,7 @@ model needs is carried in tool responses, never assumed remembered (compaction-p
   docs; all strings live in a shared `strings.ts`, snapshot-tested, **build-time
   extracted into the docs** so README/PROTOCOL can never drift from the wire (critic
   catch: three lenses had invented three vocabularies).
-- **Ack contract**: ack = *received and surfaced to my human*. Deferral is a valid
+- **Ack contract**: ack = *model-received* (the message entered your context — NOT that you told your human; R2). Deferral is a valid
   outcome; the response to an ack-without-reply is neutral ("noted"), not a nag that
   triggers repair behavior. Repeat-acks are success-shaped idempotent. The Stop hook
   text is **surface-first**: "New tenfour message arrived: <summary>. Tell your human
@@ -160,9 +159,9 @@ frozen at launch; package semver independent; compat policy stated.
 
 ## 7. Open decisions for the founders (consolidated, final list)
 
-1. **Project + npm name** (blocking all docs; tenfour/redphone/crossband all available per DESIGN §12 — final pick pending).
+1. **Project + npm name** — DECIDED: `tenfour` (DESIGN §12; published on npm).
 2. Jonathan's actual environment (native vs WSL) — DECIDED: native Windows (DESIGN §12); docs cover both.
-3. Gate rules scope: user-scope (friction everywhere) vs per-project (weaker default) — default shipped: opt-in user-scope with honest prompt.
+3. Gate rules scope — DECIDED: per-project via `tenfour init --workspace` (DESIGN §12); doctor check 14 warns on untagged target repos.
 4. Symmetric tasks day one — recommended yes (J2-b depends on it).
 5. Launch post: include the iMessage duct-tape origin story/screenshots? — DECIDED: no iMessage origin story (DESIGN §12).
 
@@ -173,7 +172,7 @@ frozen at launch; package semver independent; compat policy stated.
 Ack = model-received (§4's "surfaced to my human" rescinded — R2). Push-check is the
 local ancestor test, not ls-remote (R5). `hello` celebration moment now rides the
 diag.ping broker method — same UX, no protocol carve-out (R6). `accepted` via
-`tenfour accept <thread>` or MCP confirm gesture — the adapter never infers "go" from
+`tenfour accept <thread>` (CLI gesture only; there is no MCP confirm tool) — the adapter never infers "go" from
 prose (R8). J3 micro-threads are now first-class wire citizens (R3/R4). Dispatcher
 responsiveness: PostToolUse mid-turn injection + `tenfour standby` duty-officer mode
 added to J3/J4 (R1) — an always-on PC answers status questions in seconds-to-minutes.
