@@ -1,0 +1,5 @@
+# Normalize all text files to LF on every platform (fixes Windows CRLF vs prettier)
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.gif binary
