@@ -3,5 +3,8 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "dependencies": { "@tenfour/schema": "workspace:*", "zod": "^4.4.3" }
+  "dependencies": {
+    "@tenfour/schema": "*",
+    "zod": "^4.4.3"
+  }
 }
