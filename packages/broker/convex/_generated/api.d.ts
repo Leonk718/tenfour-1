@@ -16,6 +16,7 @@ import type * as invite from "../invite.js";
 import type * as lib_core from "../lib/core.js";
 import type * as lib_ids from "../lib/ids.js";
 import type * as send from "../send.js";
+import type * as setup from "../setup.js";
 import type * as testutil from "../testutil.js";
 import type * as thread from "../thread.js";
 
@@ -34,6 +35,7 @@ declare const fullApi: ApiFromModules<{
   "lib/core": typeof lib_core;
   "lib/ids": typeof lib_ids;
   send: typeof send;
+  setup: typeof setup;
   testutil: typeof testutil;
   thread: typeof thread;
 }>;
