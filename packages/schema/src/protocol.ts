@@ -173,7 +173,8 @@ export const REPO_SLUG_REGEX =
   /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*(?::[0-9]{1,5})?\/[a-z0-9._-]{1,100}\/[a-z0-9._-]{1,100}$/;
 export const SHA_REGEX = /^([0-9a-f]{40}|[0-9a-f]{64})$/;
 // eslint-disable-next-line no-control-regex
-export const GIT_REF_REGEX = /^[^\s\u0000-\u001f\u007f]{1,255}$/;
+export const GIT_REF_REGEX =
+  /^(?!-)(?!refs\/)(?!\/)(?!.*\.\.)(?!.*@\{)(?!.*\.lock$)[^\s\u0000-\u001f\u007f~^:?*[\\]{1,255}$/;
 export const BEARER_TOKEN_REGEX = /^tf1_[A-Za-z0-9_-]{43}$/; // 256-bit (D3)
 export const ADMIN_KEY_REGEX = /^tfadmin_[A-Za-z0-9_-]{43}$/; // 256-bit (D3)
 export const INVITE_CODE_REGEX = /^TENFOUR1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{6}$/; // (D29)
@@ -190,9 +191,18 @@ export const AgentNameSchema = z.string().regex(AGENT_NAME_REGEX, 'AgentName: us
 export const RepoSlugSchema = z
   .string()
   .max(LIMITS.REPO_MAX_CHARS)
-  .regex(REPO_SLUG_REGEX, 'RepoSlug: host/owner/name, lowercase (ARTIFACTS §2.1)');
+  .regex(REPO_SLUG_REGEX, 'RepoSlug: host/owner/name, lowercase (ARTIFACTS §2.1)')
+  .superRefine((repo, ctx) => {
+    const err = repoSemanticError(repo);
+    if (err) ctx.addIssue({ code: 'custom', message: `RepoSlug ${err} (ARTIFACTS §2.1)` });
+  });
 export const ShaSchema = z.string().regex(SHA_REGEX, 'Sha: 40 or 64 lowercase hex');
-export const GitRefSchema = z.string().regex(GIT_REF_REGEX, 'GitRef: 1-255 chars, no whitespace/control');
+export const GitRefSchema = z
+  .string()
+  .regex(GIT_REF_REGEX, 'GitRef: git check-ref-format grammar (ARTIFACTS ART-046)')
+  .refine((s) => new TextEncoder().encode(s).byteLength <= LIMITS.REF_MAX_CHARS, {
+    message: `GitRef exceeds ${LIMITS.REF_MAX_CHARS} UTF-8 bytes (ART-045)`,
+  });
 export const TimestampSchema = z.number().int().nonnegative(); // ms epoch, broker clock (D5)
 export const CursorSchema = z.string().min(1).max(LIMITS.CURSOR_MAX_CHARS); // opaque
 export const ConsentTokenSchema = z.string().regex(CONSENT_TOKEN_REGEX);
@@ -259,13 +269,20 @@ export const CONSENT_STATES = ['not_required', 'none', 'granted', 'stale', 'revo
 export const ConsentStateSchema = z.enum(CONSENT_STATES);
 export type ConsentState = z.infer<typeof ConsentStateSchema>;
 
-export const GRANTED_VIA = ['cli_accept', 'mcp_confirm', 'standing_rule'] as const; // R8
+// B1: consent-acceptance rides the CLI `tenfour accept` gesture and standing-rule
+// config only. There is no MCP consent tool, so that grant path is removed.
+export const GRANTED_VIA = ['cli_accept', 'standing_rule'] as const; // R8
 export const GrantedViaSchema = z.enum(GRANTED_VIA);
 export type GrantedVia = z.infer<typeof GrantedViaSchema>;
 
 export const FROZEN_REASONS = ['round_cap', 'needs_human'] as const;
 export const FrozenReasonSchema = z.enum(FROZEN_REASONS);
 export type FrozenReason = z.infer<typeof FrozenReasonSchema>;
+
+/** Terminal-close vocabulary (B7; STATE §1.2). status===closed ⇔ closed_reason set. */
+export const CLOSED_REASONS = ['answered', 'declined', 'cancelled', 'done'] as const;
+export const ClosedReasonSchema = z.enum(CLOSED_REASONS);
+export type ClosedReason = z.infer<typeof ClosedReasonSchema>;
 
 export const ROOT_KINDS = ['task', 'question'] as const;
 export const RootKindSchema = z.enum(ROOT_KINDS);
@@ -314,14 +331,188 @@ export const SHA_PINNED_ARTIFACT_TYPES = ['git_commit', 'git_branch'] as const;
  * Envelopes (WIRE.md §5)
  * ──────────────────────────────────────────────────────────────────────────── */
 
-const utf8Len = (s: string): number => new TextEncoder().encode(s).byteLength;
+const utf8Bytes = (s: string): number => new TextEncoder().encode(s).byteLength;
+
+/** WIRE §5.4 / D14 / B4: the broker NORMALIZES body to NFC and never rejects it. */
+export function normalizeBody(s: string): string {
+  return s.normalize('NFC');
+}
 
 /**
- * Client envelope: what the adapter submits inside `send`.
- * NOTE: the broker NFC-normalizes `body` BEFORE parsing with this schema (D14);
- * adapters MUST normalize before validating/hashing. The refinement therefore
- * treats non-NFC input as a hard failure — by the time this schema runs, both
- * sides have already normalized.
+ * Canonical JSON used for the SINGLE byte-cap measurement (B10): keys sorted at every
+ * level, strings NFC-normalized, absent optionals (undefined) omitted, array (artifact)
+ * order preserved as sent post-dedup. Zod has already stripped unknown fields by the
+ * time this runs. No ad-hoc JSON.stringify sizing lives anywhere else.
+ */
+export function canonicalJson(value: unknown): string {
+  if (value === undefined) return 'null';
+  if (value === null || typeof value !== 'object') {
+    return typeof value === 'string' ? JSON.stringify(value.normalize('NFC')) : JSON.stringify(value);
+  }
+  if (Array.isArray(value)) return `[${value.map((v) => canonicalJson(v)).join(',')}]`;
+  const rec = value as Record<string, unknown>;
+  const parts = Object.keys(rec)
+    .filter((k) => rec[k] !== undefined)
+    .sort()
+    .map((k) => `${JSON.stringify(k)}:${canonicalJson(rec[k])}`);
+  return `{${parts.join(',')}}`;
+}
+
+/** UTF-8 byte length of the canonical JSON of `value` (B10 — body, artifact, envelope caps). */
+export function canonicalBytes(value: unknown): number {
+  return utf8Bytes(canonicalJson(value));
+}
+
+/**
+ * Extra repo-slug semantics beyond REPO_SLUG_REGEX (ARTIFACTS §2.1, B5): port range
+ * 1..65535 (reject 00000, leading zeros, > 65535), host <= 253 chars, owner/name never
+ * "." or "..", name never ending ".git". Assumes REPO_SLUG_REGEX already matched (so
+ * exactly two "/" and lowercase ASCII). Returns a reason, or null when clean.
+ */
+function repoSemanticError(repo: string): string | null {
+  const segs = repo.split('/');
+  if (segs.length !== 3) return 'malformed';
+  const [hostPort, owner, name] = segs;
+  const colon = hostPort.indexOf(':');
+  const host = colon === -1 ? hostPort : hostPort.slice(0, colon);
+  if (host.length === 0 || host.length > LIMITS.HOSTNAME_MAX_CHARS) return 'host_length';
+  if (colon !== -1) {
+    const port = hostPort.slice(colon + 1);
+    if (!/^[0-9]{1,5}$/.test(port)) return 'port_invalid';
+    const p = Number(port);
+    if (p < 1 || p > 65535 || String(p) !== port) return 'port_invalid'; // rejects 00000, 080, > 65535
+  }
+  for (const seg of [owner, name]) {
+    if (seg === '.' || seg === '..') return 'dot_segment';
+  }
+  if (name.endsWith('.git')) return 'dot_git_suffix';
+  return null;
+}
+
+/** Host (incl. port) of a repo slug that already passed REPO_SLUG_REGEX. */
+function repoHost(repo: string): string {
+  return repo.split('/')[0];
+}
+
+/**
+ * pull_request.url rules (ARTIFACTS §4.3, B5): absolute https, ASCII only, NO embedded
+ * credentials, host (incl. port, case-insensitive) === the artifact's repo host.
+ */
+function urlError(url: string, repo: string): string | null {
+  for (const ch of url) if (ch.charCodeAt(0) > 127) return 'url_not_ascii';
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return 'url_invalid';
+  }
+  if (parsed.protocol !== 'https:') return 'url_scheme';
+  if (parsed.username !== '' || parsed.password !== '') return 'url_credentials';
+  if (parsed.host.toLowerCase() !== repoHost(repo).toLowerCase()) return 'url_host_mismatch';
+  return null;
+}
+
+/** The D15 system fan-out post (from tenfour/system, to "thread") — carve-out below. */
+function isSystemFanout(env: { from?: string; to?: string }): boolean {
+  return env.from === SYSTEM_AGENT && env.to === THREAD_SENTINEL;
+}
+
+interface RefinableEnvelope {
+  kind: string;
+  body: string;
+  to: string;
+  from?: string;
+  in_reply_to?: string | null;
+  repo?: string | null;
+  artifacts?: readonly Artifact[];
+}
+
+/**
+ * The ONE envelope refinement, run on BOTH ClientEnvelopeSchema and
+ * StampedEnvelopeSchema (B6). StampedEnvelope is NOT "trusted, skip refinements": the
+ * only relaxation is the D15 system-fanout carve-out (from tenfour/system, to "thread"),
+ * which skips the party / round / artifact-kind rules a broker post legitimately does
+ * not satisfy. Body is normalized (never rejected, B4); artifact string fields MUST be
+ * NFC (rejected otherwise — ART-071 — because artifact bytes feed allowlist/dedup/hash
+ * comparisons byte-for-byte).
+ */
+function sharedEnvelopeRefinement(env: RefinableEnvelope, ctx: z.RefinementCtx): void {
+  const issue = (message: string, path: (string | number)[] = []): void => {
+    ctx.addIssue({ code: 'custom', message, path });
+  };
+  const artifacts = env.artifacts ?? [];
+  const systemPost = isSystemFanout(env);
+
+  // ── Size caps (B10 canonicalBytes — the sole measurement)
+  if (utf8Bytes(normalizeBody(env.body)) > LIMITS.BODY_MAX_BYTES) {
+    issue(`body exceeds ${LIMITS.BODY_MAX_BYTES} UTF-8 bytes (BODY_TOO_LARGE)`, ['body']);
+  }
+  if (canonicalBytes(env) > LIMITS.ENVELOPE_MAX_BYTES) {
+    issue(`envelope exceeds ${LIMITS.ENVELOPE_MAX_BYTES} UTF-8 bytes (BODY_TOO_LARGE)`);
+  }
+  if (canonicalBytes(artifacts) > LIMITS.ARTIFACTS_MAX_BYTES) {
+    issue(
+      `serialized artifacts exceed ${LIMITS.ARTIFACTS_MAX_BYTES} UTF-8 bytes (ARTIFACT_INVALID, artifacts_too_large)`,
+      ['artifacts'],
+    );
+  }
+
+  // ── Per-artifact B5 rules: NFC enforcement, repo semantics, url, duplicates
+  const seen = new Set<string>();
+  artifacts.forEach((a, i) => {
+    const strings: [string, string][] = [['repo', a.repo]];
+    if (a.type === 'git_commit' || a.type === 'git_branch') strings.push(['ref', a.ref]);
+    if (a.type === 'pull_request') strings.push(['url', a.url]);
+    for (const [field, value] of strings) {
+      if (value !== value.normalize('NFC')) {
+        issue(`artifact[${i}].${field} is not NFC (ARTIFACT_INVALID, not_nfc)`, ['artifacts', i, field]);
+      }
+    }
+    const rErr = repoSemanticError(a.repo);
+    if (rErr) issue(`artifact[${i}].repo ${rErr} (ARTIFACT_INVALID)`, ['artifacts', i, 'repo']);
+    if (a.type === 'pull_request') {
+      const uErr = urlError(a.url, a.repo);
+      if (uErr) issue(`artifact[${i}].url ${uErr} (ARTIFACT_INVALID)`, ['artifacts', i, 'url']);
+    }
+    const key =
+      a.type === 'pull_request'
+        ? `pr ${a.repo} ${a.number}`
+        : `sha_ref ${a.repo} ${a.ref}`;
+    if (seen.has(key)) {
+      issue(`duplicate artifact at index ${i} (ARTIFACT_INVALID, duplicate_artifact)`, ['artifacts', i]);
+    }
+    seen.add(key);
+  });
+
+  // ── task.repo carries the same first-class repo semantics (B5)
+  if (env.repo != null) {
+    const rErr = repoSemanticError(env.repo);
+    if (rErr) issue(`repo ${rErr} (ARTIFACT_INVALID)`, ['repo']);
+  }
+
+  // ── Kind-field presence (skipped for the D15 system fan-out post)
+  if (!systemPost) {
+    if (!(ARTIFACT_KINDS as readonly string[]).includes(env.kind) && artifacts.length > 0) {
+      issue(`artifacts are only legal on kinds ${ARTIFACT_KINDS.join(', ')}`, ['artifacts']);
+    }
+    if (
+      env.kind === 'result' &&
+      !artifacts.some((a) => (SHA_PINNED_ARTIFACT_TYPES as readonly string[]).includes(a.type))
+    ) {
+      issue('result requires at least one sha-pinned artifact (git_commit or git_branch)', ['artifacts']);
+    }
+    if (env.kind === 'answer' && env.in_reply_to == null) {
+      issue('answer requires in_reply_to = id of the question being answered', ['in_reply_to']);
+    }
+  }
+}
+
+/**
+ * Client envelope: what the adapter submits inside `send`. The broker NORMALIZES `body`
+ * to NFC (normalizeBody) in the validate pipeline before caps/hash/persist (B4) — non-NFC
+ * body is corrected, never rejected. The shared refinement (B6) owns caps, artifact
+ * rules, and kind-field presence; the client-only refinement owns thread-opening (R3),
+ * repo (R10), and body-emptiness (D10) rules that apply to adapter input only.
  */
 export const ClientEnvelopeSchema = z
   .object({
@@ -336,27 +527,11 @@ export const ClientEnvelopeSchema = z
     body: z.string(),
     artifacts: z.array(ArtifactSchema).max(LIMITS.ARTIFACTS_MAX).default([]),
   })
+  .superRefine((env, ctx) => sharedEnvelopeRefinement(env, ctx))
   .superRefine((env, ctx) => {
     const issue = (message: string, path: (string | number)[] = []): void => {
       ctx.addIssue({ code: 'custom', message, path });
     };
-
-    // ── Normalization + size caps (D13/D14)
-    if (env.body !== env.body.normalize('NFC')) {
-      issue('body must be NFC-normalized before validation/hashing', ['body']);
-    }
-    if (utf8Len(env.body) > LIMITS.BODY_MAX_BYTES) {
-      issue(`body exceeds ${LIMITS.BODY_MAX_BYTES} UTF-8 bytes (BODY_TOO_LARGE)`, ['body']);
-    }
-    if (utf8Len(JSON.stringify(env)) > LIMITS.ENVELOPE_MAX_BYTES) {
-      issue(`envelope exceeds ${LIMITS.ENVELOPE_MAX_BYTES} UTF-8 bytes (BODY_TOO_LARGE)`);
-    }
-    if (utf8Len(JSON.stringify(env.artifacts)) > LIMITS.ARTIFACTS_MAX_BYTES) {
-      issue(
-        `serialized artifacts array exceeds ${LIMITS.ARTIFACTS_MAX_BYTES} UTF-8 bytes (ARTIFACT_INVALID, reason artifacts_too_large)`,
-        ['artifacts'],
-      );
-    }
 
     // ── Thread-opening rules (R3)
     const opening = env.thread_id === null;
@@ -373,10 +548,7 @@ export const ClientEnvelopeSchema = z
       issue('parent_id (current thread head) is required on all non-opening messages', ['parent_id']);
     }
 
-    // ── in_reply_to rules (R4, D11)
-    if (env.kind === 'answer' && env.in_reply_to === null) {
-      issue('answer requires in_reply_to = id of the question being answered', ['in_reply_to']);
-    }
+    // ── in_reply_to forbidden outside answer (R4/D11; required-on-answer is shared)
     if (env.kind !== 'answer' && env.in_reply_to !== null) {
       issue('in_reply_to is only legal on kind=answer', ['in_reply_to']);
     }
@@ -389,17 +561,6 @@ export const ClientEnvelopeSchema = z
       issue('repo is only legal on task (required) and change_request (optional)', ['repo']);
     }
 
-    // ── artifact rules (§5.2/§5.3)
-    if (!(ARTIFACT_KINDS as readonly string[]).includes(env.kind) && env.artifacts.length > 0) {
-      issue(`artifacts are only legal on kinds ${ARTIFACT_KINDS.join(', ')}`, ['artifacts']);
-    }
-    if (
-      env.kind === 'result' &&
-      !env.artifacts.some((a) => (SHA_PINNED_ARTIFACT_TYPES as readonly string[]).includes(a.type))
-    ) {
-      issue('result requires at least one sha-pinned artifact (git_commit or git_branch)', ['artifacts']);
-    }
-
     // ── body emptiness (D10)
     if (!(EMPTY_BODY_KINDS as readonly string[]).includes(env.kind) && env.body.length === 0) {
       issue(`body must be non-empty for kind=${env.kind}`, ['body']);
@@ -410,31 +571,34 @@ export type ClientEnvelope = z.infer<typeof ClientEnvelopeSchema>;
 export type ClientEnvelopeInput = z.input<typeof ClientEnvelopeSchema>;
 
 /**
- * Canonical server-stamped envelope (WIRE.md §5.5). Broker-authored; clients
- * treat it as trusted output, so kind-shape refinements are not re-run here
- * (system fan-out posts legitimately use to:"thread").
+ * Canonical server-stamped envelope (WIRE.md §5.5). Broker-authored, but NOT exempt:
+ * the shared envelope refinement (B6) runs here too. The only relaxation is the D15
+ * system fan-out carve-out (from tenfour/system, to "thread"), handled inside the
+ * refinement — the "StampedEnvelope is trusted, skip refinements" stance is gone.
  */
-export const StampedEnvelopeSchema = z.object({
-  protocol: z.literal(PROTOCOL_VERSION),
-  id: UlidSchema,
-  client_id: UlidSchema,
-  thread_id: UlidSchema,
-  parent_id: UlidSchema.nullable(),
-  in_reply_to: UlidSchema.nullable(),
-  from: AgentNameSchema, // derived from token; 'tenfour/system' for broker posts
-  to: z.union([AgentNameSchema, z.literal(THREAD_SENTINEL)]), // D15
-  kind: KindSchema,
-  repo: RepoSlugSchema.nullable(),
-  body: z.string(),
-  artifacts: z.array(ArtifactSchema),
-  seq: z.number().int().min(1), // per-thread ordering primitive
-  ts: TimestampSchema, // display-only
-  round: z.number().int().min(0),
-  status: ThreadStatusSchema, // thread status AFTER this message
-  delivery_state: DeliveryStateSchema, // current at response time (R7)
-  consent_token: ConsentTokenSchema.nullable(), // task + scope-expanding change_request only (D16)
-  unfroze: z.boolean(), // true iff this message resumed a frozen thread (D21; STATE §6.2)
-});
+export const StampedEnvelopeSchema = z
+  .object({
+    protocol: z.literal(PROTOCOL_VERSION),
+    id: UlidSchema,
+    client_id: UlidSchema,
+    thread_id: UlidSchema,
+    parent_id: UlidSchema.nullable(),
+    in_reply_to: UlidSchema.nullable(),
+    from: AgentNameSchema, // derived from token; 'tenfour/system' for broker posts
+    to: z.union([AgentNameSchema, z.literal(THREAD_SENTINEL)]), // D15
+    kind: KindSchema,
+    repo: RepoSlugSchema.nullable(),
+    body: z.string(),
+    artifacts: z.array(ArtifactSchema).max(LIMITS.ARTIFACTS_MAX).default([]),
+    seq: z.number().int().min(1), // per-thread ordering primitive
+    ts: TimestampSchema, // display-only
+    round: z.number().int().min(0),
+    status: ThreadStatusSchema, // thread status AFTER this message
+    delivery_state: DeliveryStateSchema, // current at response time (R7)
+    consent_token: ConsentTokenSchema.nullable(), // task + scope-expanding change_request only (D16)
+    unfroze: z.boolean(), // true iff this message resumed a frozen thread (B2; STATE §6.2)
+  })
+  .superRefine((env, ctx) => sharedEnvelopeRefinement(env, ctx));
 export type StampedEnvelope = z.infer<typeof StampedEnvelopeSchema>;
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -443,7 +607,7 @@ export type StampedEnvelope = z.infer<typeof StampedEnvelopeSchema>;
 
 /**
  * Exactly these nine fields, nothing else, ever (D17). Excluded by design:
- * client_id (the key itself), auth, consent, consent_ref (authorization
+ * client_id (the key itself), auth, consent, unfreeze (authorization
  * metadata, not content).
  */
 export const CONTENT_HASH_FIELDS = [
@@ -608,25 +772,69 @@ export const InboxThreadInfoSchema = z.object({
 });
 export type InboxThreadInfo = z.infer<typeof InboxThreadInfoSchema>;
 
+/** Resume states a frozen thread may carry (B8; STATE §1.2). */
+export const RESUME_STATES = ['offered', 'in_progress', 'review', 'open'] as const;
+
 /** Full thread object (WIRE.md §7.4). */
-export const ThreadSchema = z.object({
-  thread_id: UlidSchema,
-  root_kind: RootKindSchema,
-  initiator: AgentNameSchema,
-  recipient: AgentNameSchema,
-  status: ThreadStatusSchema,
-  resume_state: ThreadStatusSchema.nullable(), // set while frozen (D21)
-  frozen_reason: FrozenReasonSchema.nullable(),
-  frozen_by: AgentNameSchema.nullable(), // agent or tenfour/system; null unless frozen
-  round: z.number().int().min(0),
-  max_rounds: z.number().int().min(LIMITS.MAX_ROUNDS_MIN).max(LIMITS.MAX_ROUNDS_MAX),
-  head_id: UlidSchema,
-  head_seq: z.number().int().min(1),
-  repo: RepoSlugSchema.nullable(),
-  consent: ConsentRecordSchema,
-  created_at: TimestampSchema,
-  updated_at: TimestampSchema,
-});
+export const ThreadSchema = z
+  .object({
+    thread_id: UlidSchema,
+    root_kind: RootKindSchema,
+    initiator: AgentNameSchema,
+    recipient: AgentNameSchema,
+    status: ThreadStatusSchema,
+    resume_state: ThreadStatusSchema.nullable(), // set while frozen (B8)
+    frozen_reason: FrozenReasonSchema.nullable(),
+    frozen_by: AgentNameSchema.nullable(), // agent or tenfour/system; null unless frozen
+    closed_reason: ClosedReasonSchema.nullable(), // set iff status===closed (B7)
+    round: z.number().int().min(0),
+    max_rounds: z.number().int().min(LIMITS.MAX_ROUNDS_MIN).max(LIMITS.MAX_ROUNDS_MAX),
+    head_id: UlidSchema,
+    head_seq: z.number().int().min(1),
+    repo: RepoSlugSchema.nullable(),
+    consent: ConsentRecordSchema,
+    created_at: TimestampSchema,
+    updated_at: TimestampSchema,
+  })
+  .superRefine((t, ctx) => {
+    const issue = (message: string, path: (string | number)[] = []): void => {
+      ctx.addIssue({ code: 'custom', message, path });
+    };
+
+    // B8 — resume_state vocabulary
+    if (t.resume_state !== null && !(RESUME_STATES as readonly string[]).includes(t.resume_state)) {
+      issue(`resume_state must be one of ${RESUME_STATES.join(', ')}`, ['resume_state']);
+    }
+
+    // B8 — status===frozen ⇔ resume_state & frozen_reason & frozen_by all present, else all null
+    const frozenTriplePresent =
+      t.resume_state !== null && t.frozen_reason !== null && t.frozen_by !== null;
+    if (t.status === 'frozen') {
+      if (!frozenTriplePresent) {
+        issue('frozen threads MUST carry resume_state, frozen_reason, and frozen_by', ['status']);
+      }
+    } else if (t.resume_state !== null || t.frozen_reason !== null || t.frozen_by !== null) {
+      issue('resume_state/frozen_reason/frozen_by MUST all be null unless status===frozen', ['status']);
+    }
+
+    // B7 — status===closed ⇔ closed_reason present
+    if (t.status === 'closed') {
+      if (t.closed_reason === null) issue('closed threads MUST carry closed_reason', ['closed_reason']);
+    } else if (t.closed_reason !== null) {
+      issue('closed_reason is set only on closed threads', ['closed_reason']);
+    }
+
+    // B8 — task threads never "open"; question micro-threads only open|frozen|closed
+    if (t.root_kind === 'task' && t.status === 'open') {
+      issue('task threads never use status "open"', ['status']);
+    }
+    if (
+      t.root_kind === 'question' &&
+      !(['open', 'frozen', 'closed'] as readonly string[]).includes(t.status)
+    ) {
+      issue('question micro-threads use only open, frozen, or closed', ['status']);
+    }
+  });
 export type Thread = z.infer<typeof ThreadSchema>;
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -646,11 +854,15 @@ export const SendRequestSchema = z
       })
       .optional(),
     /**
-     * Human-gestured resume of a frozen thread (D21; STATE §6.2): references the
-     * single-use unfreeze consent record minted by `tenfour approve <thread>`
-     * (or the MCP tenfour_confirm gesture). Only meaningful on frozen threads.
+     * Send-borne unfreeze (B2; STATE §6.2; WIRE §7.1.3): on a frozen thread the ONLY
+     * legal send has unfreeze:true. The broker atomically restores the thread to
+     * resume_state, resets rounds_used to 0 and last_substantive_sender to null, applies
+     * this message if it is legal in resume_state (else rejects WITHOUT consuming the
+     * unfreeze), and stamps the result unfroze:true. `tenfour approve <thread>` sets it;
+     * either party may. No consent record, no endpoint, no MCP tool — unfreeze rides send.
+     * A normal send (unfreeze:false) into a frozen thread returns TENFOUR/THREAD_FROZEN.
      */
-    consent_ref: UlidSchema.optional(),
+    unfreeze: z.boolean().optional().default(false),
   })
   .superRefine((req, ctx) => {
     if (req.envelope.kind === 'accepted' && req.consent === undefined) {
@@ -682,6 +894,115 @@ export type SendSuccess = z.infer<typeof SendSuccessSchema>;
 
 export const SendResponseSchema = z.discriminatedUnion('ok', [SendSuccessSchema, ErrorResponseSchema]);
 export type SendResponse = z.infer<typeof SendResponseSchema>;
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Ordered send validation (B9) — raw parse is SEPARATE from ordered validation
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Permissive raw parse of a `send` request. `kind` is a LOOSE string, so an unknown
+ * kind does NOT fail here — it is caught as TENFOUR/UNKNOWN_KIND by validateSend, never
+ * as a Zod enum error. Reads protocol/token/to/client_id/thread_id/parent_id/
+ * in_reply_to/body/artifacts/unfreeze without enforcing their shapes.
+ */
+export const RawSendRequestSchema = z.object({
+  protocol: z.unknown().optional(),
+  auth: z.object({ token: z.unknown().optional() }).optional(),
+  envelope: z.object({
+    protocol: z.unknown().optional(),
+    client_id: z.unknown().optional(),
+    thread_id: z.unknown().optional(),
+    parent_id: z.unknown().optional(),
+    in_reply_to: z.unknown().optional(),
+    to: z.unknown().optional(),
+    kind: z.string(), // loose: any string; unknown kinds do NOT fail here (B9)
+    repo: z.unknown().optional(),
+    body: z.unknown().optional(),
+    artifacts: z.unknown().optional(),
+  }),
+  consent: z.unknown().optional(),
+  unfreeze: z.unknown().optional(),
+});
+export type RawSendRequest = z.infer<typeof RawSendRequestSchema>;
+
+export type ValidateSendResult =
+  | { ok: true; value: SendRequest }
+  | { ok: false; code: ErrorCode; reason?: string; human_action: string };
+
+const VALIDATE_SEND_HUMAN_ACTION: Partial<Record<ErrorCode, string>> = {
+  'TENFOUR/UNSUPPORTED_VERSION': 'Tell your human to update the tenfour package on this machine.',
+  'TENFOUR/AUTH_FAILED': "Tell your human to run 'tenfour doctor' — this is a setup problem.",
+  'TENFOUR/PAIR_FORBIDDEN': 'Tell your human — pairing is a human act; you cannot add peers.',
+  'TENFOUR/UNKNOWN_KIND': 'Choose the kind that matches your intent; if none fits, tell your human.',
+  'TENFOUR/BODY_TOO_LARGE':
+    'Put the detail in a pushed commit or PR and send a short body carrying the artifact reference.',
+  'TENFOUR/ARTIFACT_INVALID': 'Fix the named artifact field. For an unpushed sha: push first, then send.',
+};
+
+/**
+ * B9: `safeParse` is NOT the send validator. The wire contract is an ORDERED 13-step
+ * precedence (WIRE §7.1 D19 / STATE §3 / AUTH §3.4) whose FIRST failing step wins with
+ * exactly one typed error. validateSend runs the request-decidable prefix of that order
+ * over a permissive RawSendRequestSchema parse:
+ *
+ *   1 version → 2 auth → 3 pair → [4 dedup, 5 rate: broker state] →
+ *   6 schema/caps+normalization → [7 secret, 8 thread/party, 9 state machine, 10 head,
+ *   11 consent, 12 repo allowlist, 13 round: broker state] → commit.
+ *
+ * An unrecognized kind is TENFOUR/UNKNOWN_KIND (unrecognized_kind) here. The bracketed
+ * steps require broker state and run inside the broker mutation once this returns ok.
+ */
+export function validateSend(raw: unknown): ValidateSendResult {
+  const fail = (code: ErrorCode, reason?: string): ValidateSendResult => ({
+    ok: false,
+    code,
+    reason,
+    human_action: VALIDATE_SEND_HUMAN_ACTION[code] ?? 'Tell your human.',
+  });
+
+  const parsed = RawSendRequestSchema.safeParse(raw);
+  if (!parsed.success) return fail(ErrorCode.UNKNOWN_KIND, 'malformed_request');
+  const r = parsed.data;
+
+  // 1 — version (request + envelope must match a supported version)
+  if (r.protocol !== PROTOCOL_VERSION || r.envelope.protocol !== PROTOCOL_VERSION) {
+    return fail(ErrorCode.UNSUPPORTED_VERSION);
+  }
+  // 2 — auth token shape
+  const token = r.auth?.token;
+  if (typeof token !== 'string' || !BEARER_TOKEN_REGEX.test(token)) {
+    return fail(ErrorCode.AUTH_FAILED);
+  }
+  // 3 — pair: `to` is an agent name and not the reserved tenfour/* namespace
+  const to = r.envelope.to;
+  if (typeof to !== 'string' || !AGENT_NAME_REGEX.test(to) || to.startsWith(RESERVED_AGENT_PREFIX)) {
+    return fail(ErrorCode.PAIR_FORBIDDEN);
+  }
+  // 6a — kind recognized (UNKNOWN_KIND, never a Zod enum error)
+  if (!(KINDS as readonly string[]).includes(r.envelope.kind)) {
+    return fail(ErrorCode.UNKNOWN_KIND, 'unrecognized_kind');
+  }
+  // 6b — full request/envelope schema, caps, artifact rules; body normalized first (B4)
+  const normalized = {
+    ...r,
+    envelope: {
+      ...r.envelope,
+      body: typeof r.envelope.body === 'string' ? normalizeBody(r.envelope.body) : r.envelope.body,
+    },
+  };
+  const full = SendRequestSchema.safeParse(normalized);
+  if (!full.success) {
+    const msg = full.error.issues[0]?.message ?? '';
+    if (/exceeds .* UTF-8 bytes|BODY_TOO_LARGE/.test(msg) && !/artifacts? /.test(msg)) {
+      return fail(ErrorCode.BODY_TOO_LARGE);
+    }
+    if (/artifact|ARTIFACT|url|repo|RepoSlug|GitRef|Sha|not_nfc|duplicate/i.test(msg)) {
+      return fail(ErrorCode.ARTIFACT_INVALID);
+    }
+    return fail(ErrorCode.UNKNOWN_KIND, 'malformed_for_kind');
+  }
+  return { ok: true, value: full.data };
+}
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Method: inbox (WIRE.md §7.2)
@@ -812,7 +1133,7 @@ export const DiagPingSuccessSchema = z.object({
   nonce: z.string().max(LIMITS.NONCE_MAX_CHARS).nullable(),
   agent: AgentNameSchema,
   server_time: TimestampSchema,
-  protocol_versions: z.array(z.string()).min(1),
+  protocol_versions: z.array(z.literal(PROTOCOL_VERSION)).min(1), // constrained to SUPPORTED_PROTOCOL_VERSIONS
   broker_version: z.string().max(32),
   peer: z
     .object({
@@ -900,7 +1221,7 @@ export const InviteRedeemSuccessSchema = z.object({
     max_rounds: z.number().int().min(LIMITS.MAX_ROUNDS_MIN).max(LIMITS.MAX_ROUNDS_MAX),
   }),
   broker: z.object({
-    protocol_versions: z.array(z.string()).min(1),
+    protocol_versions: z.array(z.literal(PROTOCOL_VERSION)).min(1), // constrained to SUPPORTED_PROTOCOL_VERSIONS
     server_time: TimestampSchema,
   }),
   covenant: z.string(), // the "you say go" line, from strings.ts
@@ -943,3 +1264,91 @@ export const METHOD_SCHEMAS = {
   },
   'invite.redeem': { request: InviteRedeemRequestSchema, response: InviteRedeemResponseSchema },
 } as const satisfies Record<Method, { request: z.ZodType; response: z.ZodType }>;
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Conformance fixtures (B5) — >= 1 accept + >= 1 reject per artifact rule, tagged by
+ * ART id. Each fixture is a complete `task` client-envelope; a fixture "accepts" iff
+ * ClientEnvelopeSchema.safeParse succeeds. Rules covered by the field schemas
+ * (RepoSlugSchema/GitRefSchema/ShaSchema/number) and by the shared refinement
+ * (NFC, url host match, duplicates) are all exercised here.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+const _FIX_SHA = 'a94a8fe5ccb19ba61c4c0873d391e987982fbbd3';
+const _FIX_SHA2 = 'b1c2d3e4f5061728394a5b6c7d8e9f0011223344';
+const _NFD_REF = 'cafe' + String.fromCharCode(0x301); // decomposed (NFD) branch name
+
+function _fixTask(over: Record<string, unknown>): Record<string, unknown> {
+  return {
+    protocol: PROTOCOL_VERSION,
+    client_id: '01J1PAVH5N40E3D8QT2W9YRKM3',
+    thread_id: null,
+    parent_id: null,
+    in_reply_to: null,
+    to: 'jonathan/web',
+    kind: 'task',
+    repo: 'github.com/careswift/web',
+    body: 'implement the route header',
+    artifacts: [],
+    ...over,
+  };
+}
+const _commit = (over: Record<string, unknown>): Record<string, unknown> => ({
+  type: 'git_commit',
+  repo: 'github.com/careswift/web',
+  ref: 'main',
+  sha: _FIX_SHA,
+  ...over,
+});
+const _pr = (over: Record<string, unknown>): Record<string, unknown> => ({
+  type: 'pull_request',
+  repo: 'github.com/careswift/web',
+  number: 42,
+  url: 'https://github.com/careswift/web/pull/42',
+  ...over,
+});
+
+export interface ConformanceFixture {
+  readonly art: string;
+  readonly rule: string;
+  readonly expect: 'accept' | 'reject';
+  readonly envelope: unknown;
+}
+
+export const CONFORMANCE_FIXTURES: readonly ConformanceFixture[] = [
+  // ART-021 — repo lowercase
+  { art: 'ART-021', rule: 'repo lowercase', expect: 'accept', envelope: _fixTask({ artifacts: [_commit({})] }) },
+  { art: 'ART-021', rule: 'repo lowercase', expect: 'reject', envelope: _fixTask({ artifacts: [_commit({ repo: 'github.com/CareSwift/web' })] }) },
+  // ART-023 — owner/name not "."/".." and name not ".git"
+  { art: 'ART-023', rule: 'name not .git', expect: 'accept', envelope: _fixTask({ artifacts: [_commit({ repo: 'github.com/careswift/web' })] }) },
+  { art: 'ART-023', rule: 'name not .git', expect: 'reject', envelope: _fixTask({ artifacts: [_commit({ repo: 'github.com/careswift/web.git' })] }) },
+  // ART-024 — host <= 253 chars / port range
+  { art: 'ART-024', rule: 'port range', expect: 'accept', envelope: _fixTask({ artifacts: [_commit({ repo: 'github.com:443/careswift/web' })] }) },
+  { art: 'ART-024', rule: 'port range', expect: 'reject', envelope: _fixTask({ artifacts: [_commit({ repo: 'github.com:99999/careswift/web' })] }) },
+  // ART-040 — sha 40 or 64 hex
+  { art: 'ART-040', rule: 'sha length', expect: 'accept', envelope: _fixTask({ artifacts: [_commit({ sha: _FIX_SHA })] }) },
+  { art: 'ART-040', rule: 'sha length', expect: 'reject', envelope: _fixTask({ artifacts: [_commit({ sha: `${_FIX_SHA}a` })] }) },
+  // ART-045 — ref <= 255 UTF-8 bytes
+  { art: 'ART-045', rule: 'ref byte length', expect: 'accept', envelope: _fixTask({ artifacts: [_commit({ ref: 'feature/tf-31-inbox' })] }) },
+  { art: 'ART-045', rule: 'ref byte length', expect: 'reject', envelope: _fixTask({ artifacts: [_commit({ ref: 'a'.repeat(256) })] }) },
+  // ART-046 — ref grammar (no refs/ prefix)
+  { art: 'ART-046', rule: 'ref grammar', expect: 'accept', envelope: _fixTask({ artifacts: [_commit({ ref: 'main' })] }) },
+  { art: 'ART-046', rule: 'ref grammar', expect: 'reject', envelope: _fixTask({ artifacts: [_commit({ ref: 'refs/heads/main' })] }) },
+  // ART-048 — pull_request number in [1, 999999999]
+  { art: 'ART-048', rule: 'pr number', expect: 'accept', envelope: _fixTask({ artifacts: [_pr({ number: 42 })] }) },
+  { art: 'ART-048', rule: 'pr number', expect: 'reject', envelope: _fixTask({ artifacts: [_pr({ number: 0 })] }) },
+  // ART-049a — url https/ascii, no credentials
+  { art: 'ART-049a', rule: 'url no credentials', expect: 'accept', envelope: _fixTask({ artifacts: [_pr({ url: 'https://github.com/careswift/web/pull/42' })] }) },
+  { art: 'ART-049a', rule: 'url no credentials', expect: 'reject', envelope: _fixTask({ artifacts: [_pr({ url: 'https://user:pass@github.com/careswift/web/pull/42' })] }) },
+  // ART-049b — url host === repo host
+  { art: 'ART-049b', rule: 'url host match', expect: 'accept', envelope: _fixTask({ artifacts: [_pr({ url: 'https://github.com/careswift/web/pull/42' })] }) },
+  { art: 'ART-049b', rule: 'url host match', expect: 'reject', envelope: _fixTask({ artifacts: [_pr({ url: 'https://evil.example/careswift/web/pull/42' })] }) },
+  // ART-051 — max 8 artifacts
+  { art: 'ART-051', rule: 'max 8 artifacts', expect: 'accept', envelope: _fixTask({ artifacts: Array.from({ length: 8 }, (_v, i) => _commit({ ref: `br-${i}` })) }) },
+  { art: 'ART-051', rule: 'max 8 artifacts', expect: 'reject', envelope: _fixTask({ artifacts: Array.from({ length: 9 }, (_v, i) => _commit({ ref: `br-${i}` })) }) },
+  // ART-060 — no duplicate (type, repo, ref)
+  { art: 'ART-060', rule: 'no duplicate artifact', expect: 'accept', envelope: _fixTask({ artifacts: [_commit({ ref: 'main', sha: _FIX_SHA }), _commit({ ref: 'dev', sha: _FIX_SHA2 })] }) },
+  { art: 'ART-060', rule: 'no duplicate artifact', expect: 'reject', envelope: _fixTask({ artifacts: [_commit({ ref: 'main', sha: _FIX_SHA }), _commit({ ref: 'main', sha: _FIX_SHA2 })] }) },
+  // ART-071 — artifact strings must be NFC (NFC ref accepts; the same ref in NFD rejects)
+  { art: 'ART-071', rule: 'artifact NFC', expect: 'accept', envelope: _fixTask({ artifacts: [_commit({ ref: _NFD_REF.normalize('NFC') })] }) },
+  { art: 'ART-071', rule: 'artifact NFC', expect: 'reject', envelope: _fixTask({ artifacts: [_commit({ ref: _NFD_REF })] }) },
+] as const;

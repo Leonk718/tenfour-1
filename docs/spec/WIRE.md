@@ -275,7 +275,7 @@ because `accepted` is role-checked.
 
 **Field set (exactly these nine, DECIDED HERE, D17):**
 `artifacts, body, in_reply_to, kind, parent_id, protocol, repo, thread_id, to`.
-Excluded by design: `client_id` (the key itself), `auth`, `consent`, `consent_ref`
+Excluded by design: `client_id` (the key itself), `auth`, `consent`, `unfreeze`
 (authorization metadata, not content).
 
 **Algorithm (DECIDED HERE, D18):**
@@ -320,8 +320,8 @@ Request:
   "protocol": "tenfour/1",
   "auth": { "token": "tf1_…" },
   "envelope": { /* §5.1 */ },
-  "consent": { "token": "…", "granted_via": "cli_accept" },  // REQUIRED iff kind=accepted (R8); granted_via ∈ cli_accept | mcp_confirm | standing_rule
-  "consent_ref": "ULID"                                      // optional; unfreeze consent record, §7.1.3
+  "consent": { "token": "…", "granted_via": "cli_accept" },  // REQUIRED iff kind=accepted (R8); granted_via ∈ cli_accept | standing_rule
+  "unfreeze": false                                          // optional boolean; the send-borne unfreeze gesture (B2), §7.1.3
 }
 ```
 
@@ -340,7 +340,7 @@ mutation:**
 | 6 | request + envelope schema: kind recognized, root-legality, kind constraints (§5.2), size caps, artifact shapes/counts/dedup, result sha-pin rule | `UNKNOWN_KIND` / `BODY_TOO_LARGE` / `ARTIFACT_INVALID` |
 | 7 | secret scan over `body` + all artifact strings (best-effort DLP) | `SECRET_DETECTED` |
 | 8 | thread exists (when `thread_id` set); sender is a thread party | `THREAD_NOT_FOUND` / `NOT_THREAD_PARTY` |
-| 9 | state machine: thread not terminal; thread not frozen (a valid `consent_ref` evaluates against `resume_state`, §7.1.3); transition cell exists for (kind × state × role) | `TERMINAL_THREAD` / `THREAD_FROZEN` / `UNKNOWN_KIND` (illegal_in_state, invalid_in_reply_to) / `NOT_THREAD_PARTY` (role_forbidden) — §9.2 |
+| 9 | state machine: thread not terminal; thread not frozen (unless the send carries `unfreeze:true`, which evaluates the message against `resume_state`, §7.1.3); transition cell exists for (kind × state × role) | `TERMINAL_THREAD` / `THREAD_FROZEN` / `UNKNOWN_KIND` (illegal_in_state, invalid_in_reply_to) / `NOT_THREAD_PARTY` (role_forbidden) — §9.2 |
 | 10 | `parent_id` equals current head | `STALE_HEAD` |
 | 11 | consent: `accepted` gesture token valid; `result` requires `consent.state="granted"` | `CONSENT_REQUIRED` |
 | 12 | `repo` + artifact repos pass the pair's invite-time `repo_allowlist` (when configured, D27) | `REPO_NOT_ALLOWED` |
@@ -412,23 +412,23 @@ method or CLI command sets it. Freezing/unfreezing does not touch `consent_state
 the post-unfreeze re-prompt is receiving-adapter UX doctrine (STATE §6.2), not a
 broker consent transition.
 
-#### 7.1.3 Unfreeze (J7 resume)
+#### 7.1.3 Unfreeze (J7 resume) — rides `send` (B2)
 
-**DECIDED HERE (D21, amended — STATE-MACHINE §6.2 owns this design):** a frozen
-thread resumes only via a human-gestured consent record. The human runs
-`tenfour approve <thread>` (CLI) or approves the MCP `tenfour_confirm` permission
-prompt, minting a **single-use, 24 h-expiry unfreeze consent record**. Either
-human party MAY approve. The agent's next `send` into that thread carries
-`consent_ref` (the record's ULID); the broker evaluates the send against the
-stored `resume_state` (the pre-freeze status). On success: the message persists
-stamped `unfroze: true`, the thread state becomes that transition's target, the
-consent record is consumed, and the round counter resets (`rounds_used := 0`,
-`last_substantive_sender := null`). There is no separate unfreeze message kind and
-no system post on unfreeze — the consented message itself is the record. A send
-with no `consent_ref` into a frozen thread ⇒ `THREAD_FROZEN`; an invalid, expired,
-used, or wrong-thread ref ⇒ `CONSENT_REQUIRED`. A consented send illegal in
-`resume_state` is rejected without consuming the record. `consent_ref` on a
-non-frozen thread is ignored (success-shaped).
+**DECIDED HERE (B2 — STATE-MACHINE §6.2 owns this design):** a frozen thread resumes
+only via a human-gestured send. On a frozen thread the ONLY legal send carries the
+optional boolean `unfreeze: true`. `tenfour approve <thread>` (CLI) sets it; **either**
+human party MAY. There is no unfreeze consent record, no control-plane endpoint, and no
+MCP tool — unfreeze rides the ordinary `send` plane. On an `unfreeze: true` send the
+broker atomically: (a) restores the thread status to the stored `resume_state` (the
+pre-freeze status), (b) resets the round counter (`rounds_used := 0`,
+`last_substantive_sender := null`), (c) applies this message iff it is legal in
+`resume_state`, and (d) stamps the persisted message `unfroze: true`. If the message is
+**illegal in `resume_state`** it is rejected by that state's transition cell and the
+unfreeze is NOT consumed — the thread stays frozen (a typo must not burn the gesture).
+There is no separate unfreeze message kind and no system post on unfreeze — the
+gestured message itself is the record. A normal send (`unfreeze` absent or `false`) into
+a frozen thread ⇒ `THREAD_FROZEN`. `unfreeze: true` on a non-frozen thread is ignored
+(success-shaped).
 
 ### 7.2 `inbox`
 
@@ -742,7 +742,7 @@ the state table maps by this rule, checked in order:
 | Condition | Code | `data.reason` |
 |---|---|---|
 | Thread status is terminal (`closed`) | `TERMINAL_THREAD` | — |
-| Thread status is `frozen` (and no valid `consent_ref`) | `THREAD_FROZEN` | — |
+| Thread status is `frozen` (and the send did not carry `unfreeze:true`) | `THREAD_FROZEN` | — |
 | Kind needs consent that isn't granted (§7.1.2) | `CONSENT_REQUIRED` | `consent_not_granted` \| `bad_token` |
 | Kind is legal in this state for the OTHER party only | `NOT_THREAD_PARTY` | `role_forbidden` |
 | Kind is recognized but legal for NOBODY in this state | `UNKNOWN_KIND` | `illegal_in_state` (+ `data.legal_kinds`) |
@@ -768,8 +768,8 @@ The `human_action` column names the `strings.ts` key that owns the bytes
 | Code (`TENFOUR/…`) | Trigger | Required `data` fields | `human_action` source |
 |---|---|---|---|
 | `STALE_HEAD` | `parent_id` ≠ current thread head | `thread_id`, `head_id`, `head_seq` | `ERRORS.STALE_HEAD.instead` |
-| `TERMINAL_THREAD` | send into a `closed` thread | `thread_id`, `closed_by_kind` | `ERRORS.TERMINAL_THREAD.instead` |
-| `THREAD_FROZEN` | send into a `frozen` thread without a valid `consent_ref` (§7.1.3) | `thread_id`, `frozen_reason` | `ERRORS.THREAD_FROZEN.instead` |
+| `TERMINAL_THREAD` | send into a `closed` thread | `thread_id`, `closed_reason` | `ERRORS.TERMINAL_THREAD.instead` |
+| `THREAD_FROZEN` | send into a `frozen` thread without `unfreeze:true` (§7.1.3) | `thread_id`, `frozen_reason` | `ERRORS.THREAD_FROZEN.instead` |
 | `ROUND_CAP` | substantive send would exceed `max_rounds`; thread freezes atomically | `thread_id`, `round`, `max_rounds` | `ERRORS.ROUND_CAP.instead` |
 | `RATE_LIMITED` | per-token ceiling breached (§10) | `method`, `limit`, `window_s`, `oldest_expires_in_s` (informational, for the human) | `ERRORS.RATE_LIMITED.instead` |
 | `BODY_TOO_LARGE` | body > 16384 B or envelope > 32768 B | `limit_bytes`, `actual_bytes`, `field` | `ERRORS.BODY_TOO_LARGE.instead` |
@@ -782,7 +782,7 @@ The `human_action` column names the `strings.ts` key that owns the bytes
 | `REPO_NOT_ALLOWED` | `repo`/artifact repo not in the pair's invite-time `repo_allowlist` (D27) | `repo`, `allowlist` | `ERRORS.REPO_NOT_ALLOWED.instead` |
 | `UNSUPPORTED_VERSION` | unknown `protocol`, or request/envelope mismatch | `supported` | `ERRORS.UNSUPPORTED_VERSION.instead` |
 | `UNKNOWN_KIND` | §9.2 broad definition | `reason` (+ `state`, `kind`, `legal_kinds` when `illegal_in_state`) | `ERRORS.UNKNOWN_KIND.instead` |
-| `CONSENT_REQUIRED` | §7.1.2 / invalid `consent_ref` (§7.1.3) | `thread_id`, `reason` | `ERRORS.CONSENT_REQUIRED.instead` |
+| `CONSENT_REQUIRED` | §7.1.2 (`accepted`/`result` consent gate) | `thread_id`, `reason` | `ERRORS.CONSENT_REQUIRED.instead` |
 | `ARTIFACT_INVALID` | artifact schema/count/pin violations | `index`, `reason` | `ERRORS.ARTIFACT_INVALID.instead` |
 | `NOT_THREAD_PARTY` | caller not a party; or party using a kind reserved to the other role | `thread_id`, `reason` (`not_party` \| `role_forbidden`) | `ERRORS.NOT_THREAD_PARTY.instead` |
 | `INVITE_INVALID` | unknown/checksum/redeemed/revoked/superseded/malformed/lockout — byte-identical body, NO `data.reason` (§8.4) | — | `ERRORS.INVITE_INVALID.instead` |

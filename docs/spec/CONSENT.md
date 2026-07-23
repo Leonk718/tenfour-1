@@ -44,7 +44,7 @@ The wire shape is `protocol.ts ConsentRecordSchema` — the sole owner. Prose re
 | Field | Type | Required | Semantics |
 |---|---|---|---|
 | `thread_id` | ULID | yes | The thread this record governs (carried by the surrounding thread object). One record governs exactly one thread |
-| `granted_via` | `"cli_accept"` \| `"mcp_confirm"` \| `"standing_rule"` | yes | How consent was granted (§3; `protocol.ts GRANTED_VIA`). No other values exist in `tenfour/1`; unknown values MUST be rejected |
+| `granted_via` | `"cli_accept"` \| `"standing_rule"` | yes | How consent was granted (§3; `protocol.ts GRANTED_VIA`). No other values exist in `tenfour/1` — there is no MCP consent tool (B1); unknown values MUST be rejected |
 | `granted_at` | integer ms since Unix epoch | yes | Broker clock, **display-only** (per DESIGN §4.1 timestamps are never ordering primitives) |
 | `scope` | `"whole_thread"` | yes | The only legal value in `tenfour/1`. Receivers MUST reject records with any other value |
 
@@ -97,8 +97,10 @@ Only `granted` satisfies consent-gated operations (§9).
 
 ## 3. Gestures
 
-Exactly two interactive gestures exist (plus the standing-rule path, §3.3). All
-terminate the same way: the adapter sends `kind: accepted` through the ordinary
+Exactly ONE interactive gesture exists — the CLI `tenfour accept` (§3.1) — plus the
+standing-rule path (§3.3). There is NO MCP consent tool (B1): tenfour serves exactly
+four MCP tools (`tenfour_send`, `tenfour_ack`, `tenfour_thread`, `tenfour_wait`). Both
+paths terminate the same way: the adapter sends `kind: accepted` through the ordinary
 `send` method carrying the `consent { token, granted_via }` block
 (WIRE §7.1; `protocol.ts SendRequestSchema` REQUIRES the block iff
 `kind === "accepted"`).
@@ -123,29 +125,25 @@ consent record atomically inside the same `send` mutation that persists the
   budget (`round X/{max_rounds}`) **before** issuing the network call, so the human
   sees what they are consenting to.
 
-### 3.2 MCP gesture: the `tenfour_confirm` tool
+### 3.2 No MCP consent gesture (B1)
 
-**DECIDED HERE:** the MCP confirm tool is named **`tenfour_confirm`**.
+**DECIDED HERE (B1):** there is **no MCP consent/confirm tool**. tenfour serves exactly
+four MCP tools — `tenfour_send`, `tenfour_ack`, `tenfour_thread`, `tenfour_wait` — none
+of which can grant consent. Consent-acceptance is the CLI `tenfour accept <thread>`
+gesture (§3.1) plus the standing-rule config path (§3.3), and nothing else.
 
-- **Input:** `{ thread_id: string, consent_token: string }`. The model MUST echo the
-  consent token exactly as it appeared in the surfaced task's inbound wrapper (R8).
-  The echo binds the confirmation to the specific task version that was surfaced —
-  a rotated token (§4) makes confirmations of stale task versions impossible.
-- **The human gesture is the Claude Code permission prompt.** `tenfour_confirm`
-  MUST be covered by an **ask-rule** and MUST NOT be covered by any allow-rule.
-  `tenfour init --workspace` installs the ask-rule **per-project** in designated
-  tenfour workspace repos (§8.4). The human's approval of that prompt is the gesture;
-  the token echo is the binding, not the authorization.
-- On approval, the adapter sends `kind: accepted` with
-  `consent: { token, granted_via: "mcp_confirm" }`.
-- **Degradation, stated honestly:** if the user has globally allow-listed all MCP
-  tools, the prompt never fires and this gesture degrades to model-initiated.
-  `tenfour doctor` check `consent-ask-rule` MUST FAIL (not warn) when any allow-rule
-  matches `tenfour_confirm`, and SECURITY.md states this limit in plain words.
-- The model MUST only call `tenfour_confirm` after its human explicitly directed
-  acceptance in the session. This is doctrine (enforced by the tool description in
-  `strings.ts` and by the permission prompt), not by broker code — the broker cannot
-  see who typed what.
+- **Why CLI-only:** the CLI is a human surface by covenant. Removing the MCP gesture
+  removes the "globally allow-listed MCP tools degrade the prompt to model-initiated"
+  failure mode entirely — a model has no consent surface to call.
+- The generic `tenfour_send` tool still MUST reject `kind: "accepted"` locally
+  (F-2, CLI-MCP MCP-010); acceptance reaches the broker `send` method only through the
+  gesture paths (§3.1, §3.3), which construct the `kind:accepted` + `consent` block.
+- The consent token (§4) is surfaced in the inbound wrapper so the CLI `tenfour accept`
+  path can resolve and echo it; the token is a **binding**, not an authorization — the
+  authorization is the human's typed CLI command.
+- **Unfreeze** of a frozen thread is likewise CLI-only and rides `send`: `tenfour
+  approve <thread>` issues a send with `unfreeze: true` (B2; STATE §6.2). No MCP tool,
+  no consent record, no endpoint.
 
 ### 3.3 Standing-rule acceptance (automatic path)
 
@@ -166,7 +164,7 @@ for local audit.
 |---|---|
 | F-1 | The adapter MUST NOT infer consent from natural language ("go", "yes", "looks good", or any prose), in any language, ever (R8) |
 | F-2 | The **generic MCP send tool `tenfour_send`** MUST NOT accept `kind: "accepted"` — the adapter rejects it locally with `TENFOUR/CONSENT_REQUIRED` (CLI-MCP MCP-010). Acceptance reaches the broker `send` method ONLY through the gesture paths (§3.1–§3.3), which construct the `kind:accepted` + `consent` block themselves. The broker independently rejects any `kind:accepted` send whose `consent` block is absent or invalid (`CONSENT_REQUIRED`, defense in depth) |
-| F-3 | No allow-rule may cover `tenfour_confirm` (§3.2); shipping one is a release-blocking defect |
+| F-3 | No MCP tool may grant consent (§3.2, B1): the served MCP surface is exactly `tenfour_send`/`tenfour_ack`/`tenfour_thread`/`tenfour_wait`, and none accepts `kind:"accepted"`. Shipping a consent/confirm MCP tool is a release-blocking defect |
 | F-4 | Standing rules MUST NOT be read from CLAUDE.md or any prose file (§8.5) |
 | F-5 | The broker MUST NOT create consent records on unfreeze, on `change_request` receipt, or on any event other than a valid gestured `accepted` send |
 
@@ -176,7 +174,7 @@ for local audit.
 |---|---|
 | `offered`, valid current token | The adapter sends `kind: accepted` + `consent` block; the broker atomically validates the token, creates the consent record, persists the **adapter-authored** `accepted` message, and transitions the thread to `in_progress`. `accepted` is a status kind and does not consume a round (DESIGN §4.4). This row covers the initial offer AND every structural re-offer after a scope-expanding `change_request` (§6): re-grant is re-offer, so the same cell applies. If a `pending_repo` exists (§6.2), it is committed as the thread's declared `repo` in the same mutation |
 | Any state with `consent_state: granted` | **Success-shaped no-op** (doctrine: repeated gestures are not errors): `strings.ts CONSENT_ALREADY_ACTIVE_NOTE`. No new record, no wire message |
-| `frozen` | `TENFOUR/THREAD_FROZEN`. Unfreeze first (`tenfour approve`, STATE §6.2), then gesture |
+| `frozen` | `TENFOUR/THREAD_FROZEN` — a normal send (including a gesture-borne `accepted`) into a frozen thread is rejected. Unfreeze first: `tenfour approve <thread>` issues a send with `unfreeze: true` (B2, STATE §6.2), then gesture |
 | Terminal (`closed`) | `TENFOUR/TERMINAL_THREAD` |
 | Token stale, wrong, or already used | `TENFOUR/CONSENT_REQUIRED` (§9.3, `data.reason: "bad_token"`). No record created |
 | Gesture by any agent other than the consent party | `TENFOUR/NOT_THREAD_PARTY` (`role_forbidden` — `accepted` is owner-only in the STATE §5 table). **DECIDED HERE:** for consent operations, "party" means the consent party (§1); the initiator receives this error even though it is a message-plane party of the thread |
@@ -192,7 +190,7 @@ for local audit.
 | Single-use | A token is consumed by the successful gestured `accepted` send it authorizes. Reuse → `TENFOUR/CONSENT_REQUIRED` |
 | Expiry | **DECIDED HERE:** tokens do not expire by wall time. They die only by rotation or use. (Time-based expiry would make the morning-catch-up journey — J4 — randomly fail) |
 | Rendering | Stamped on the wire envelope (`consent_token`, WIRE §5.5) — **visible to both thread parties** (WIRE D16); usable only by the recipient because `accepted` is role-checked. Surfaced in the inbound wrapper of the message that requires the gesture (`WRAPPER_CONSENT_TOKEN_LINE` / `WRAPPER_RECONSENT_LINE` in `strings.ts`) and in `tenfour_thread` responses |
-| Not a secret boundary | The receiving model can read the token (it must, to echo it). The token is a **binding**, not an authorization: authorization is the human's prompt approval or typed CLI command (§3.2). SECURITY.md repeats this |
+| Not a secret boundary | The receiving model can read the token (it must, so the CLI `tenfour accept` path can echo it). The token is a **binding**, not an authorization: authorization is the human's typed CLI command (§3.1). SECURITY.md repeats this |
 
 ---
 
@@ -370,8 +368,8 @@ Gate permission rules are **per-project**: they are installed into a repo's own
 **DECIDED HERE:** designation is `tenfour init --workspace`, run in the repo root
 (keeps the R12 command manifest; `init` is already merge-not-clobber). It:
 
-1. installs the per-project gate rules (DESIGN §5 gate list) including the
-   `tenfour_confirm` ask-rule (§3.2), merging with sentinel-substring idempotency;
+1. installs the per-project gate rules (DESIGN §5 gate list — `strings.ts
+   GATE_RULE_PATTERNS`), merging with sentinel-substring idempotency;
 2. registers the repo's absolute path under `workspaces[]` in config
    (`config.ts`; the adapter derives the canonical repo-id from the checkout's
    `origin` remote — used for wrong-repo detection, the ancestor check, and doctor
@@ -430,16 +428,15 @@ retryable: false }` — `message` carries the what-happened + what-is-true-now c
 > human consent record, and none is active (consent state: {consent_state}).
 > **now:** Nothing was sent or changed; the thread is exactly as it was.
 > **instead:** Tell your human. They grant consent with 'tenfour accept
-> {thread_short}' or by approving a tenfour_confirm permission prompt; standing rules
-> in config can cover future cases like this one.
+> {thread_short}' in a terminal; standing rules in config can cover future cases like
+> this one.
 
 Rendered examples (default `max_rounds` config):
 
 - Model tried `tenfour_send {kind: "accepted"}`:
-  `TENFOUR/CONSENT_REQUIRED: The operation 'send:accepted' on thread 01J9Z3M8 requires an active human consent record, and none is active (consent state: none). Nothing was sent or changed; the thread is exactly as it was. Tell your human. They grant consent with 'tenfour accept 01J9Z3M8' or by approving a tenfour_confirm permission prompt; standing rules in config can cover future cases like this one.`
+  `TENFOUR/CONSENT_REQUIRED: The operation 'send:accepted' on thread 01J9Z3M8 requires an active human consent record, and none is active (consent state: none). Nothing was sent or changed; the thread is exactly as it was. Tell your human. They grant consent with 'tenfour accept 01J9Z3M8' in a terminal; standing rules in config can cover future cases like this one.`
 - `result` after a scope-expansion trigger (§6): same shape with
   `operation: send:result`, `consent_state: stale`.
-- `tenfour_confirm` echoing a rotated token: same shape with `operation: confirm`.
 
 The string never says retry, resend, or try again; the sole action is
 **tell your human** with the exact granting commands named. `{thread_short}` is the
@@ -455,7 +452,7 @@ checks**); this section is a cross-reference, not a second list.
 
 | Check | Manifest # | Level | Asserts |
 |---|---|---|---|
-| `consent-ask-rule` | 13 | FAIL | An ask-rule covers `tenfour_confirm` in every tagged workspace, and no allow-rule matches it anywhere doctor can read |
+| `consent-surface` | 13 | FAIL | The served MCP tool set is EXACTLY the four tools (`tenfour_send`/`tenfour_ack`/`tenfour_thread`/`tenfour_wait`) — no consent/confirm tool (B1, F-3) — and `tenfour_send` rejects `kind:accepted` locally (MCP-010) |
 | `workspace-tagged` | 14 | WARN | Every repo named in `allowed_repos` or a queued inbound task is a tagged workspace |
 
 (Standing-rule schema validity is asserted by check 1, `config-parse`, which
@@ -478,12 +475,12 @@ validates against `packages/schema/src/config.ts` — no separate check.)
 | C9 | `change_request` whose artifacts all reference previously-seen (`repo`,`sha`) pairs, no repo change → `consent_state` stays `granted`; thread `review → in_progress`; old token still invalid (single-use, consumed at grant) |
 | C10 | `result` while `stale` → `CONSENT_REQUIRED` (`operation: send:result`) |
 | C11 | Repo-changing `change_request`: `pending_repo` set at send; `result` before re-grant → `CONSENT_REQUIRED`; re-grant commits repo atomically; wrong-repo injection uses old repo until commit |
-| C12 | Freeze (needs_human AND round-cap variants) → `consent_state` unchanged by the freeze; unfreeze (`tenfour approve` + `consent_ref` send) resumes without touching consent; the receiving adapter re-surfaces the resumed thread before work continues (UX doctrine, STATE §6.2) |
+| C12 | Freeze (needs_human AND round-cap variants) → `consent_state` unchanged by the freeze; unfreeze (`tenfour approve` → a send with `unfreeze: true`, B2) resumes without touching consent; the receiving adapter re-surfaces the resumed thread before work continues (UX doctrine, STATE §6.2) |
 | C13 | No v1 surface can set `consent_state: revoked`: there is no `tenfour revoke` command, no revocation MCP tool, and no wire method — asserted by the CLI/MCP manifests and the 7-method registry |
 | C14 | (reserved with revocation — v1.1) |
 | C15 | Auto-accept fires iff sender ∈ `auto_accept_from` ∧ repo ∈ `allowed_repos` ∧ workspace tagged; resulting record has `granted_via: "standing_rule"`; journal has `standing_rule: true` |
 | C16 | Config failing `TenfourConfigSchema` (config.ts) → doctor check 1 `config-parse` FAILs; malformed standing rules never partially apply |
-| C17 | Allow-rule matching `tenfour_confirm` present → doctor `consent-ask-rule` (check 13) FAILs |
+| C17 | A served MCP consent/confirm tool (or `tenfour_send` accepting `kind:accepted`) → doctor `consent-surface` (check 13) FAILs (B1, F-3) |
 | C18 | Question micro-thread: `answer` sends with no consent record; `consent_state: not_required` in wrapper header |
 | C19 | Token reuse after successful grant → `CONSENT_REQUIRED` |
 | C20 | Every `CONSENT_REQUIRED` wire error carries `retryable: false` and `human_action` byte-identical to the `strings.ts` rendering |

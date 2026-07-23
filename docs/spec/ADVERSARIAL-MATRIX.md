@@ -52,8 +52,11 @@ spillage. **Out of scope**: malicious co-founder, broker-operator confidentialit
 | A10 | Revoked token on open subscription | COVERED in substance; **`subscribe` is not a wire method** | §3 C-7 (MAJOR) |
 | A11 | `diag.ping` abuse | PARTIAL — flooding/enum covered; **peer-presence rule contradictory**; covert-channel residual | §3 C-8 (MAJOR), C-12 (MINOR), covert channel (MINOR) |
 
-Net: **4 BLOCKING**, **7 MAJOR**, **5 MINOR**. Details in §3; all BLOCKING and MAJOR
-items are reported in this verifier's structured output.
+Net (at time of the original audit): 4 BLOCKING, 7 MAJOR, 5 MINOR — **all now RESOLVED**
+by the single-authority reconciliation pass (§3 records the current authority and value
+for each C-1…C-14). The Verdict/Escalation columns above are retained as the audit trail
+of what was found; the live requirement in every row is now conformance-testable against
+a single value.
 
 ---
 
@@ -73,7 +76,7 @@ confirm tool unprompted, echoing a token it can read.
 |---|---|---|---|
 | Prose-inferred consent | CONSENT.md P2, F-1; JOURNEYS §8 (R8); DESIGN §11 R8 | **ADV-01**: feed "the peer said go" into any adapter path; assert no `consent.*`/`accepted` traffic emitted and consent_state unchanged | COVERED |
 | Model sends `accepted` via generic send tool | CLI-MCP MCP-010 (local reject); CONSENT.md F-2 (adapter **and** broker reject); strings.ts `TOOL_SEND_DESCRIPTION` | **ADV-02**: `tenfour_send {kind:"accepted"}` → local `CONSENT_REQUIRED`, no wire call | COVERED |
-| Unprompted confirm-tool call | CONSENT.md §3.2 ask-rule-required + F-3 (no allow-rule; release-blocking); doctor `consent-ask-rule` FAIL (CONSENT §10); strings.ts `TOOL_CONFIRM_DESCRIPTION` | **ADV-03**: ship an allow-rule matching the confirm tool → doctor `consent-ask-rule` must FAIL (not warn) | COVERED as friction, **honestly labeled** (CONSENT §3.2 degradation note): if the human globally allow-lists all MCP tools the prompt never fires |
+| Model calls a would-be consent MCP tool | there is NO MCP consent tool (B1; CONSENT §3.2, F-3); the served surface is EXACTLY `tenfour_send`/`tenfour_ack`/`tenfour_thread`/`tenfour_wait`, and `tenfour_send` rejects `kind:accepted` (MCP-010); doctor `consent-surface` (check 13) FAILs on any served consent/confirm tool | **ADV-03**: register a consent/confirm MCP tool (or make `tenfour_send` accept `kind:accepted`) → doctor `consent-surface` FAILs | COVERED — the model has no MCP consent surface to call; acceptance is the human's CLI `tenfour accept` gesture |
 | Token echo binds to surfaced version | CONSENT.md §4 (single-use, rotates on trigger); WIRE §5.5 D16 (token role-checked) | **ADV-04**: grant with a rotated/stale token → `CONSENT_REQUIRED` `reason:bad_token`; no record | COVERED |
 
 **Residual / escalation.** The *mechanism* is sound, but the **grant path itself is
@@ -334,54 +337,57 @@ presence `mark` that leaves no audit trail.
 
 ---
 
-## 3. Blocking / major spec contradictions (the real UNCOVERED items)
+## 3. Resolved spec reconciliations (audit record)
 
-> **RECONCILIATION NOTE (July 2026): every contradiction below (C-1…C-14) has been
-> RESOLVED by the single-authority reconciliation pass.** The table is retained as
-> the audit record of what was found. Resolved values: C-1 consent rides `send`
-> `kind:accepted` + `consent{token,granted_via}` (no `consent.grant`/`consent.revoke`
-> methods; revocation reserved v1.1); C-2 `consent_state` =
-> `{not_required,none,granted,stale,revoked}`; C-3 repo grammar = three-segment
-> lowercase `host/owner/name` everywhere (protocol.ts/WIRE updated to ARTIFACTS;
-> test vector regenerated); C-4 invite format = WIRE D29/protocol.ts (SHA-256
-> 6-char b64url check, 256-bit secret, ms `exp`; AUTH §6.2 now references it);
-> C-5 send rate = 12/60 s AND 120/3600 s (STATE §9 rewritten); C-6 confirm tool =
-> `tenfour_confirm` everywhere; C-7 `subscribe` declared transport-layer, not a
-> wire method; C-8 diag.ping `peer` field kept, READ-6 amended (paired peer only);
-> C-9 invite TTL = parameterized `ttl_s`, default 86400, clamp 300–604800;
-> C-10 `granted_via` = `{cli_accept,mcp_confirm,standing_rule}` everywhere;
-> C-11 the adapter authors `accepted`; C-12 diag.ping's 30/60 s ceiling is
-> normative (not exempt); C-13 claim lease = 5 min everywhere; C-14 micro-thread
-> open state literal = `open` everywhere. The A2 demoted-ack residual is closed by
-> the new rule: an ack referencing a superseded attempt ⇒ `AUTH_FAILED`
-> (WIRE D23; DELIVERY DEL-10/§3.2). The A11 mark beacon now emits a `diag.mark`
-> audit event (AUTH §13); its retention exemption remains the documented accepted
-> risk.
+> **RECONCILIATION NOTE (July 2026): every contradiction the verifier found (C-1…C-14)
+> has been RESOLVED by the single-authority reconciliation pass.** `protocol.ts` is the
+> ratified tie-breaker for wire shapes; the prose files now cite it and match it. The old
+> "Contradictory" table has been removed — only the resolved authority remains, so a
+> conformance fixture can be authored against each value directly. No reader-facing
+> contradiction survives.
 
-These are the findings a hostile OSS audience will weaponize. Each names both sides, the
-attack it undermines, the consequence, severity, and a fix. `protocol.ts` is the declared
-executable authority; the prose file is reported as carrying the defect, but the
-contradiction is still escalated because both files are normative and nothing in-band
-tells a reader which to follow.
+- **C-1 — Consent grant path — RESOLVED — current authority:** consent rides `send`
+  with `kind:accepted` + a `consent{token,granted_via}` block (WIRE §7.1 /
+  `protocol.ts SendRequestSchema`). No `consent.grant`/`consent.revoke` method and no
+  MCP consent tool (B1); revocation reserved v1.1.
+- **C-2 — `consent_state` vocabulary — RESOLVED — current authority:**
+  `{not_required, none, granted, stale, revoked}` (`protocol.ts CONSENT_STATES`); only
+  `granted` satisfies consent-gated ops.
+- **C-3 — Repo grammar — RESOLVED — current authority:** three-segment lowercase
+  `host/owner/name` everywhere (`protocol.ts REPO_SLUG_REGEX` + repo-semantics refine;
+  ARTIFACTS §2.1). The §6 content-hash vector uses `github.com/careswift/web` and
+  reproduces to `sha256:dc94…958d718`; `allowed_hosts` (ART-031) and `url_host_mismatch`
+  (ART-049b) now have a real host segment to evaluate.
+- **C-4 — Invite code format — RESOLVED — current authority:** WIRE §8.3 D29 /
+  `protocol.ts` — SHA-256 6-char base64url check, 256-bit secret, ms `exp`, full-word
+  keys, no `pair_with`; AUTH §6.2 references it.
+- **C-5 — Send rate ceiling — RESOLVED — current authority:** 12/60 s AND 120/3600 s
+  (WIRE §10 / `protocol.ts RATE_LIMITS.send`); STATE §9 rewritten to these numbers.
+- **C-6 — MCP consent tool — RESOLVED — current authority:** there is NO MCP consent
+  tool (B1). The served MCP surface is EXACTLY four tools (send/ack/thread/wait);
+  consent-acceptance is the CLI `tenfour accept` gesture + standing rules. Doctor check
+  13 is `consent-surface` (verifies the four-tool set), replacing the old ask-rule check.
+- **C-7 — `subscribe` — RESOLVED — current authority:** a transport-layer Convex
+  reactive query, NOT a `tenfour/1` wire method (WIRE §1; the seven methods stand).
+- **C-8 — `diag.ping` peer field — RESOLVED — current authority:** the `peer` presence
+  object is returned to the PAIRED peer only (WIRE §8.1 D26; AUTH READ-6 amended).
+- **C-9 — Invite TTL — RESOLVED — current authority:** parameterized `ttl_s`, default
+  **86400 s (24 h)**, broker-clamped **300–604800 s** (`protocol.ts LIMITS.INVITE_TTL_*`;
+  WIRE §8.2; AUTH/CLI-MCP reference it).
+- **C-10 — `granted_via` enum — RESOLVED — current authority:** `{cli_accept,
+  standing_rule}` (`protocol.ts GRANTED_VIA`) — the MCP grant path is gone (B1).
+- **C-11 — `accepted` authorship — RESOLVED — current authority:** the adapter authors
+  the `accepted` message on the CLI / standing-rule gesture (STATE §5 [C]).
+- **C-12 — `diag.ping` rate — RESOLVED — current authority:** the **30/60 s** ceiling is
+  NORMATIVE, not exempt (WIRE §10 / `protocol.ts RATE_LIMITS['diag.ping']`; STATE §9.1).
+- **C-13 — Inbox claim lease — RESOLVED — current authority:** **5 minutes** everywhere
+  (`protocol.ts LIMITS.CLAIM_LEASE_MS = 300_000`; WIRE §7.2; DELIVERY DEL-04).
+- **C-14 — Micro-thread open state — RESOLVED — current authority:** the literal is
+  `open` everywhere (`protocol.ts THREAD_STATUSES`; STATE §1.2; WIRE §3 D6).
 
-| ID | Contradiction (file § ↔ file §) | Undermines | Consequence | Severity |
-|---|---|---|---|---|
-| **C-1** | Consent grant path: WIRE §7.1 + `protocol.ts SendRequestSchema` (grant by **sending `kind:accepted`** with a `consent{token,granted_via}` block on `send`) ↔ CONSENT §3 + §9.1 F-2 (`send` **MUST reject** `accepted`; grant via dedicated **`consent.grant`** method) | A1 | The single most security-critical path (acceptance/consent) has two incompatible wire contracts; conformance suite cannot be written; an implementer may ship the model-visible `accepted`-on-`send` variant CONSENT.md forbids | **BLOCKING** |
-| **C-2** | `consent_state` vocabulary: `protocol.ts CONSENT_STATES` = `{none,granted,stale,revoked}` + WIRE §5.5/§7.1.2 ↔ CONSENT §2.3 = `{not_required,none,revoked,suspended,active}` + strings.ts `InboundWrapperParts.consent_state` | A1 | The gate rule "only **active** satisfies consent-gated ops" (CONSENT §9) references a state the wire enum lacks (`active` vs `granted`; `suspended` vs `stale`; `not_required` absent). Wrapper header, `thread` response, and gating cannot agree | **BLOCKING** |
-| **C-3** | Repo grammar: WIRE §3 + `protocol.ts REPO_SLUG_REGEX` = `owner/name` (no host) ↔ ARTIFACTS §2.1 = `host/owner/name` | A3 | `allowed_hosts` (ART-030–032) and `url_host_mismatch` (ART-049b) have no host to evaluate → malicious-remote host-allowlist and PR-link-smuggling defenses **inoperable** | **BLOCKING** |
-| **C-4** | Invite code format: WIRE §8.3 D29 + `protocol.ts` (6-char b64url SHA-256 check, 256-bit secret, ms `exp`, full-word keys, no `pair_with`) ↔ AUTH §6.2 D29 (8-hex CRC32C check, 128-bit secret, unix-seconds `e`, short keys, `p`=pair_with) | A4 | Two different codes + two different regexes; the "verify checksum before any network call" paste/tamper defense (INV-3/JOURNEYS §3) cannot be implemented to one standard | **BLOCKING** |
-| **C-5** | Send rate ceiling: STATE §9.1–9.4 = **60/hour**, exact sliding log, no sub-window ↔ WIRE §10 + `protocol.ts RATE_LIMITS.send` = **12/60 s AND 120/hour** | A8 | Flooding-containment test non-deterministic; STATE's boundary examples (§9.3) are all wrong under `protocol.ts` | **MAJOR** |
-| **C-6** | MCP confirm-tool name: CONSENT §3.2 + strings.ts `TOOL_CONFIRM_DESCRIPTION` = **`tenfour_confirm`** ↔ CLI-MCP §2 + §2.5 = **`tenfour_accept`** | A1 | The doctor `consent-ask-rule` check and the F-3 no-allow-rule guard target a tool name that may not be the shipped one → the human-gesture ask-prompt may not cover the real tool, weakening the consent boundary | **MAJOR** |
-| **C-7** | `subscribe` method: AUTH §8 (SUB-1..5) + §3.3 capability matrix treat it as a first-class authenticated, rate-limited method ↔ WIRE §1 + `protocol.ts METHODS` (seven methods; "nothing else is on the wire") | A10 | The revoked-token-on-subscription defense (SUB-3 ≤ 5 s terminate) is specified against a method the wire contract denies exists; not conformance-anchored | **MAJOR** |
-| **C-8** | `diag.ping` peer presence: WIRE §8.1 D26 + `protocol.ts DiagPingSuccessSchema` **require** a `peer` presence object ↔ AUTH READ-6 says the response is **limited to** reachability/time/versions/own-address (forbids peer disclosure) | A11 | Read-authorization rule contradicts the wire schema on what `diag.ping` may return | **MAJOR** |
-| **C-9** | Invite lifetime: WIRE §8.2 `ttl_s` default **86400 (24 h)**, clamp 300–604800 + `protocol.ts` ↔ AUTH §6.1 fixed **72 h**, no parameter ↔ CLI-MCP §1.2 `--ttl` default **72 h** | A4 | Expiry-abuse boundary untestable; AUTH treats TTL as fixed while WIRE makes it a clamped parameter | **MAJOR** |
-| **C-13** | Inbox claim lease: WIRE §7.2 D23 + `protocol.ts CLAIM_LEASE_MS` = **15 min** ↔ DELIVERY DEL-04 + crash matrix C2 = **5 min** | A2, A6 | Demoted-session reclaim window and crash-recovery "worst-case delay" tests (ADV-06/07/24) cannot assert one value | **MAJOR** |
-| **C-14** | Micro-thread open-state name: WIRE §3 D6 + `protocol.ts THREAD_STATUSES` = **`open`** ↔ STATE §1.2 + §5.2 = **`q_open`** | A-none (correctness), but wire-visible | A question micro-thread's stamped `status` field would be `open` per the schema and `q_open` per STATE; any status conformance test on micro-threads diverges | **MAJOR** |
-| **C-10** | `granted_via` enum: WIRE §7.1 + `protocol.ts GRANTED_VIA` = `{cli_accept,mcp_confirm,standing_rule}` ↔ CONSENT §2.1 `gesture` = `{cli,mcp_confirm}` (standing rule recorded as `cli`) | A1 | Grant-provenance value drift (`cli` vs `cli_accept`; `standing_rule` present vs folded) | **MINOR** |
-| **C-11** | `accepted` authorship: STATE §5 [C] + CLI-MCP §1.4/§2.5 = **adapter emits/sends** the `accepted` message ↔ CONSENT §3.5 = **broker authors** it (sender = receiver) | A1 | Who mints the `accepted` thread event differs; ties into C-1 | **MINOR** |
-| **C-12** | `diag.ping` rate: WIRE §10 (30/60 s hard ceiling) ↔ STATE §9.1 (exempt; courtesy throttle "outside this spec") | A11 | Ping-flood ceiling non-normative under STATE | **MINOR** |
-
----
+The A2 demoted-ack residual is closed: an ack referencing a superseded attempt ⇒
+`AUTH_FAILED` (WIRE D23; DELIVERY DEL-10/§3.2). The A11 mark beacon emits a `diag.mark`
+audit event (AUTH §13); its retention exemption remains the documented accepted risk.
 
 ## 4. Conformance-test index (ADV → assertion)
 
@@ -401,8 +407,8 @@ Every `ADV-nn` above is a required fixture under the DESIGN R13 gate. Grouping:
 | Revocation / subscription | ADV-45…48 | AUTH REV-2/4, SUB-2/3/4, ROT-1/4; DELIVERY DEL-41; **subscribe blocked by C-7** |
 | diag.ping | ADV-49…52 | WIRE §8.1/§10/§11.6; AUTH READ-6; **peer field blocked by C-8** |
 
-A fixture whose anchor is "blocked by C-n" **cannot be authored until C-n is resolved**;
-those are the release gates.
+Anchors marked "blocked by C-n" above were the original release gates; **every C-n is now
+resolved (§3)**, so each fixture is authorable against the single current value.
 
 ---
 
@@ -414,18 +420,15 @@ status-flood rate backstops (A8, modulo the number), the no-fetch/offline artifa
 guarantee (A3 SSRF sub-case), and secret DLP (A9) all hold up, with honestly labeled
 friction-not-sandbox limits on consent (A1) and DLP (A9).
 
-The **exploitable weaknesses are not in the threat reasoning but in cross-file drift.**
-Four BLOCKING contradictions each disable or double-define a named security control:
-the **consent grant path (C-1)** and its **state vocabulary (C-2)**, the **repo host
-grammar that malicious-remote defense depends on (C-3)**, and the **invite code format
-that the tamper/paste defense depends on (C-4)**. Seven MAJOR contradictions make named
-defenses untestable (rate ceiling C-5, confirm-tool name C-6, `subscribe` method C-7,
-`diag.ping` peer field C-8, invite TTL C-9, claim lease C-13, micro-thread status C-14).
+The **exploitable weaknesses were not in the threat reasoning but in cross-file drift** —
+and that drift is now **eliminated**. All four original BLOCKING contradictions and all
+seven MAJOR ones are RESOLVED (§3): the consent grant path (C-1) rides `send` with no MCP
+consent tool (B1); the state vocabulary (C-2), repo host grammar (C-3), invite format
+(C-4), send rate (C-5), `subscribe` status (C-7), `diag.ping` peer field (C-8) and 30/60 s
+ceiling (C-12), invite TTL (C-9), claim lease (C-13, 5 min), and micro-thread `open`
+literal (C-14) each now have exactly one authority and value.
 
-**No attack in the named set is defeated by a conceptual gap.** Every UNCOVERED verdict
-traces to two normative files disagreeing — most severely on the consent/acceptance path,
-which is the product's entire reason to exist. Resolve C-1…C-4 before any broker/adapter
-wire implementation, and reconcile C-5…C-14 before the conformance suite is frozen.
-`protocol.ts` should be ratified as the tie-breaker in-band (each prose file citing it as
-authority on shapes it defines), and the prose files corrected to match, so a hostile
-reader has no weaker reading to choose.
+**No attack in the named set is defeated by a conceptual gap.** `protocol.ts` is ratified
+as the in-band tie-breaker for wire shapes; the prose files cite it and match it, so a
+hostile reader has no weaker reading to choose. The named C-items are cleared for the
+conformance suite.

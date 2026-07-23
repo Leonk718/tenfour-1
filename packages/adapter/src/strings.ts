@@ -56,7 +56,7 @@ export function pluralS(n: number): string {
 // Injection point: MCP server tools/list — `description` field of tool `tenfour_send`.
 export const TOOL_SEND_DESCRIPTION = `Send one message to your paired peer agent over tenfour — certified mail between Claudes, not chat. Every send should carry substance: never send thanks, receipts, or courtesy acknowledgments (receipt is tenfour_ack's job, and each substantive exchange spends the thread's round budget — when it is gone the thread freezes for the humans).
 
-Kinds you may send: 'task' (offer new work; requires a target repo; opens a thread), 'question' (ask the peer; may open a micro-thread or ride an existing thread), 'answer' (answers a question; YOU must supply in_reply_to = the id of the question message you are answering; in a micro-thread it closes the thread), 'result' (finished work; requires at least one sha-pinned artifact, and the sha must already be pushed — the adapter verifies locally before sending), 'change_request' (revision ask while a thread is in review), 'declined' (turn down an offered task), 'cancel' (initiator retires their own task or question), 'done' (initiator closes after review), 'needs_human' (freeze the thread for the humans). You cannot send 'accepted' here: acceptance requires your human's structured gesture — 'tenfour accept <thread>' in a terminal, or their approval of a tenfour_confirm permission prompt.
+Kinds you may send: 'task' (offer new work; requires a target repo; opens a thread), 'question' (ask the peer; may open a micro-thread or ride an existing thread), 'answer' (answers a question; YOU must supply in_reply_to = the id of the question message you are answering; in a micro-thread it closes the thread), 'result' (finished work; requires at least one sha-pinned artifact, and the sha must already be pushed — the adapter verifies locally before sending), 'change_request' (revision ask while a thread is in review), 'declined' (turn down an offered task), 'cancel' (initiator retires their own task or question), 'done' (initiator closes after review), 'needs_human' (freeze the thread for the humans). You cannot send 'accepted' here: acceptance requires your human's structured gesture — 'tenfour accept <thread>' in a terminal, or a standing rule they declared in config.
 
 The adapter mints client_id and fills parent_id; never invent or reuse either. A response with status 'duplicate' is success — the broker already holds that message; the response tells you its current delivery_state and no action is needed. Every TENFOUR/* error is final for this attempt (retryable: false): do exactly what its instead-line says — usually tell your human — and never resend after an error. Each response echoes canonical thread state (head id, seq, round X of the budget, state, consent state); trust the response over your memory.`;
 
@@ -69,10 +69,10 @@ export const TOOL_THREAD_DESCRIPTION = `Fetch the canonical state of one tenfour
 // Injection point: MCP server tools/list — `description` field of tool `tenfour_wait`.
 export const TOOL_WAIT_DESCRIPTION = `Block for up to the configured timeout for the next inbound tenfour message. Calling this is legal in exactly two situations: (1) your human asked you to wait for the peer, or (2) you just sent a blocking in-thread question about work you are actively doing and cannot proceed without the answer. In every other situation, end your turn instead — tenfour is a mailbox, not a doorbell, and replies reach you through your inbox at the next session start, prompt, or wait. A timeout is a normal outcome, not a failure: on timeout, end your turn. Do not call wait again in a loop.`;
 
-// Injection point: MCP server tools/list — `description` field of tool `tenfour_confirm`.
-// (Fifth tool, defined by docs/spec/CONSENT.md §3.2; deliberately NOT allow-listed —
-// the Claude Code permission prompt it raises is the human consent gesture.)
-export const TOOL_CONFIRM_DESCRIPTION = `Send 'accepted' on an offered task — or re-grant consent after a re-consent notice — ONLY after your human explicitly said to accept in this session. Requires the consent token exactly as it appeared in the surfaced task's tenfour wrapper; a mismatched token means the task changed since you read it. Calling this tool raises a permission prompt to your human: their approval of that prompt IS the consent gesture. Never call this to speed things up, never infer acceptance from friendly language, and never ask your human to pre-approve this tool. If your human has not spoken, the correct action is to surface the task and end your turn.`;
+// B1/B15: tenfour serves EXACTLY four MCP tools (tenfour_send, tenfour_ack,
+// tenfour_thread, tenfour_wait). There is NO MCP consent/confirm tool. Consent-
+// acceptance is the CLI `tenfour accept <thread>` gesture plus standing-rule config
+// only (CONSENT §3); unfreeze rides `send` via `tenfour approve` (B2).
 
 // ---------------------------------------------------------------------------
 // Inbound wrapper (provenance marking — NOT an injection boundary; DESIGN §5)
@@ -102,7 +102,7 @@ export const WRAPPER_REPO_LINE = 'target repo: {repo}';
 
 // Injection point: context line in the wrapper of a surfaced task awaiting acceptance.
 export const WRAPPER_CONSENT_TOKEN_LINE =
-  "consent token: {consent_token} — your human grants acceptance with 'tenfour accept {thread_short}', or you may call tenfour_confirm with this exact token AFTER your human says to accept (the permission prompt they approve is the gesture).";
+  "consent token: {consent_token} — your human grants acceptance by running 'tenfour accept {thread_short}' in a terminal (or via a standing rule they declared in config). You cannot accept from here; surface this and end your turn.";
 
 // Injection point: context line in the wrapper of the message that triggered
 // re-consent (change_request adding artifacts / changing repo, or first delivery
@@ -283,7 +283,7 @@ export const ACK_OK_NOTE =
 export const ACK_DUPLICATE_NOTE =
   'noted — this message was already marked model-received. No action needed.';
 
-// Injection point: tenfour_confirm / CLI accept response when consent is already
+// Injection point: CLI accept response when consent is already
 // active on the thread (CONSENT.md §3.5 success-shaped no-op).
 export const CONSENT_ALREADY_ACTIVE_NOTE =
   'consent is already active on thread {thread_short} — no action needed. Work may proceed under the existing grant.';
@@ -308,11 +308,7 @@ export const ROUND_CAP_SYSTEM_BODY =
 
 // Injection point: tenfour_send local rejection of kind:accepted (CLI-MCP MCP-010).
 export const SEND_ACCEPTED_REJECTED =
-  "accepted is not sent by models. Your human accepts via: tenfour accept {thread_short} — or you may call tenfour_confirm only when your human has said go and you hold the consent token from the surfaced task.";
-
-// Injection point: tenfour_confirm token-mismatch result (CLI-MCP §2.5).
-export const CONFIRM_TOKEN_MISMATCH =
-  'the consent token does not match the surfaced task. Re-read the surfaced message and echo its consent token exactly. If you cannot, tell your human to run: tenfour accept {thread_short}';
+  "accepted is not sent by models. Your human accepts via: tenfour accept {thread_short} in a terminal (or a standing rule they declared in config). Surface the task and end your turn.";
 
 // Injection point: the covenant line printed by tenfour join and returned by
 // invite.redeem (WIRE §8.4).
@@ -362,7 +358,6 @@ export const GATE_RULE_PATTERNS: readonly string[] = [
   'Edit(.claude/**)',
   'Edit(.github/**)',
   'Edit(**/.env*)',
-  'mcp__tenfour__tenfour_confirm',
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -415,7 +410,7 @@ export const ERRORS: Readonly<Record<TenfourErrorCode, TenfourErrorStrings>> = {
       'Call tenfour_thread, read what changed, and compose a fresh message that responds to the current head — do not send the old one.',
   },
   TERMINAL_THREAD: {
-    what: 'You sent to thread {thread_short}, which is already terminal ({closed_by_kind}).',
+    what: 'You sent to thread {thread_short}, which is already terminal ({closed_reason}).',
     now: 'Nothing was sent. Terminal threads never reopen.',
     instead: 'If new work is needed, tell your human — they can direct a new task thread.',
   },
@@ -499,7 +494,7 @@ export const ERRORS: Readonly<Record<TenfourErrorCode, TenfourErrorStrings>> = {
     what: "The operation '{operation}' on thread {thread_short} requires an active human consent record, and none is active (consent state: {consent_state}).",
     now: 'Nothing was sent or changed; the thread is exactly as it was.',
     instead:
-      "Tell your human. They grant consent with 'tenfour accept {thread_short}' or by approving a tenfour_confirm permission prompt; standing rules in config can cover future cases like this one.",
+      "Tell your human. They grant consent with 'tenfour accept {thread_short}' in a terminal; standing rules in config can cover future cases like this one.",
   },
   ARTIFACT_INVALID: {
     what: 'An artifact failed validation: {detail}.',

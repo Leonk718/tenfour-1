@@ -15,6 +15,9 @@
 import { z } from 'zod';
 import { AgentNameSchema, RepoSlugSchema } from './protocol.js';
 
+/** Array elements must be unique (byte equality). */
+const isUnique = <T>(arr: readonly T[]): boolean => new Set(arr).size === arr.length;
+
 /** Absolute filesystem path (POSIX `/…` or Windows drive/UNC form). */
 export const AbsolutePathSchema = z
   .string()
@@ -39,7 +42,10 @@ export const StandingRulesSchema = z
      * additionally requires the task repo ∈ allowed_repos AND a tagged
      * workspace (CONSENT.md §8.2), and records granted_via "standing_rule".
      */
-    auto_accept_from: z.array(AgentNameSchema).default([]),
+    auto_accept_from: z
+      .array(AgentNameSchema)
+      .refine(isUnique, 'auto_accept_from entries must be unique')
+      .default([]),
   })
   .strict();
 
@@ -57,14 +63,20 @@ export const TenfourConfigSchema = z
      * canonical repo-id (host/owner/name) from its `origin` remote; the
      * ancestor check (ARTIFACTS §8) resolves artifact repos against this list.
      */
-    workspaces: z.array(AbsolutePathSchema).default([]),
+    workspaces: z
+      .array(AbsolutePathSchema)
+      .refine(isUnique, 'workspaces entries must be unique')
+      .default([]),
     /**
      * Receive allowlist: canonical three-segment repo slugs
      * (host/owner/name, lowercase — protocol.ts RepoSlugSchema). Evaluated at
      * surface time by the receiving adapter (ARTIFACTS §10). Exact byte
      * equality; no wildcards in tenfour/1.
      */
-    allowed_repos: z.array(RepoSlugSchema).default([]),
+    allowed_repos: z
+      .array(RepoSlugSchema)
+      .refine(isUnique, 'allowed_repos entries must be unique')
+      .default([]),
     standing_rules: StandingRulesSchema.default({
       auto_answer_questions: false,
       auto_accept_from: [],

@@ -1,7 +1,7 @@
 # tenfour — a durable, human-gated task relay between two Claude Code sessions
 
-**Status: DRAFT v0.95 — post-Codex-review rewrite. Pending UX-panel integration + Codex round 2.**
-**Working name "tenfour" (founder names the project). Protocol name: `tenfour/1` (own namespace; not "A2A" — that collides with Google's protocol branding).**
+**Status: DRAFT v0.96 — post-Codex-round-3 reconciliation. Founder decisions of §12 are recorded (name, protocol, per-project gates, 9 CLI commands, 4 MCP tools); no items await founder input.**
+**Name: `tenfour` (DECIDED — §12). Protocol name: `tenfour/1` (own namespace; not "A2A" — that collides with Google's protocol branding).**
 
 One Claude Code session talks to one Claude Code session across two machines (macOS ↔
 Windows ↔ Linux), with durable queuing, authenticated identity, model-visible protocol
@@ -222,14 +222,16 @@ MIT, no telemetry.
 
 ## 9. Decisions locked vs open
 
-**Locked by tests/review:** hooks+MCP transport; SessionStart as the session-open
-delivery path; model-ack = received; reject-and-freeze; 10 kinds; head rule; per-thread
-seq; system principal; repo allowlist + never-auto-fetch; honest security labeling;
-cross-platform Node-only scripts; broker interface with Convex as v1 impl.
+**Locked by tests/review:** name `tenfour` + protocol `tenfour/1`; hooks+MCP transport
+(exactly four MCP tools); SessionStart as the session-open delivery path; model-ack =
+received; reject-and-freeze; 10 kinds; head rule; per-thread seq; system principal; repo
+allowlist + never-auto-fetch; per-project gates via `init --workspace`; nine CLI commands
+(incl. `approve`); honest security labeling; cross-platform Node-only scripts; broker
+interface with Convex as v1 impl.
 
-**Open for founders:** name; outbound-task friction dial (prompt forever vs allowlist
-after trust period); symmetric tasks day one (recommended yes);
-self-host timing (v1.1 with CI proof). (max_rounds default DECIDED: 10 — §12.)
+**Open for founders:** outbound-task friction dial (prompt forever vs allowlist after
+trust period); self-host timing (v1.1 with CI proof). (Name, protocol, per-project
+gate scope, max_rounds default 10, and symmetric-tasks-day-one are all DECIDED — §12.)
 
 ## 10. v2 parking lot
 
@@ -280,9 +282,9 @@ truth, not artifact inference).
 **R11 — Outbound idempotency**: the adapter persists
 `prepared(client_id, content_hash) → sending → confirmed`; retries reuse the original
 client_id. Canonical-hash field set specified in the wire schemas.
-**R12 — CLI manifest (synced)**: `init`, `invite`, `join`, `accept`, `token`,
-`doctor`, `status`, `inbox`. Windows claim narrowed: Node hooks avoid PowerShell
-policy; npm's global shims do not — SETUP leads with the pre-step.
+**R12 — CLI manifest (synced, nine commands)**: `init`, `invite`, `join`, `accept`,
+`approve`, `token`, `doctor`, `status`, `inbox`. Windows claim narrowed: Node hooks
+avoid PowerShell policy; npm's global shims do not — SETUP leads with the pre-step.
 **R13 — Honest phase gate**: §4.3's "complete, published, tested" describes the
 DELIVERABLE, not this document. Implementation of broker/adapter wire behavior begins
 only after the normative artifacts exist: full state table, executable Zod wire
@@ -291,13 +293,18 @@ binding, read auth), delivery-state table (leases, cursors, crash points), round
 algorithms with pseudocode, strings.ts catalog, adversarial test matrix. Scaffolding,
 prototypes, and test harness may start now (Codex round-2 verdict, adopted).
 
-## 12. Founder decisions (recorded July 23, 2026)
+## 12. Founder decisions (recorded)
 
-- **max_rounds default: 10** (was 6 in draft; broker clamp range widens to 1..12).
+- **Name: `tenfour`** (DECIDED — npm-available; supersedes the redphone/crossband shortlist).
+- **Protocol name: `tenfour/1`** (own namespace; not "A2A").
+- **max_rounds default: 10** (was 6 in draft; broker clamp range 1..12).
+- **Gate-rule scope: per-project** (DECIDED): gate rules install into each repo's own
+  `.claude/settings.json` via `tenfour init --workspace`, and doctor warns on untagged
+  target repos. No user-scope global gate rules.
+- **CLI manifest: nine commands** (DECIDED — R12): `init`, `invite`, `join`, `accept`,
+  `approve`, `token`, `doctor`, `status`, `inbox`.
+- **MCP surface: exactly four tools** (`tenfour_send`/`tenfour_ack`/`tenfour_thread`/
+  `tenfour_wait`) — no MCP consent tool; consent is CLI `tenfour accept` + standing rules.
 - **Jonathan's environment: native Windows** (PowerShell) — demo and SETUP.md lead
   native; WSL stays documented as the alternate column.
 - **Launch post: NO iMessage origin story** — the post stands on the demo + spec.
-- **Name: shortlist checked against npm July 23** — tenfour / redphone / crossband all
-  AVAILABLE; final pick pending founder.
-- Gate-rule scope: recommendation presented (per-project default + doctor warning);
-  awaiting founder pick.

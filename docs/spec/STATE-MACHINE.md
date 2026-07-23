@@ -88,18 +88,18 @@ Per R8/R9, two distinct broker record kinds exist:
 
 - **Accept consent** — the wire-visible record (`protocol.ts ConsentRecordSchema`):
   `{state, granted_at, granted_via, scope}` with `granted_via ∈ {cli_accept,
-  mcp_confirm, standing_rule}` (`protocol.ts GRANTED_VIA`), `granted_at` an integer
+  standing_rule}` (`protocol.ts GRANTED_VIA`), `granted_at` an integer
   ms-epoch broker timestamp, and `scope: "whole_thread"`. Created ONLY by a
   gestured `kind:accepted` send carrying the `consent {token, granted_via}` block
-  (WIRE §7.1; gestures: `tenfour accept <thread>`, the MCP `tenfour_confirm`
-  tool, or a standing rule). Required for the `accepted` transition (§5,
+  (WIRE §7.1; gestures: `tenfour accept <thread>` or a standing rule — there is no
+  MCP consent tool, B1). Required for the `accepted` transition (§5,
   footnote C). The derived `consent_state` enum is `protocol.ts CONSENT_STATES`
   = `{not_required, none, granted, stale, revoked}` (`revoked` reserved v1.1).
-- **Unfreeze consent** — a broker-internal, single-use record identified by a ULID
-  (the `consent_ref` a subsequent `send` carries, WIRE §7.1.3): created by
-  `tenfour approve <thread>` (or the MCP `tenfour_confirm` gesture), by **either**
-  human party. **DECIDED HERE:** unfreeze consent is single-use and expires 24 h
-  after grant. Required to move a `frozen` thread (§6).
+- **Unfreeze** — **NOT a consent record.** A frozen thread resumes when a send carries
+  the boolean `unfreeze: true` (B2, WIRE §7.1.3), set by `tenfour approve <thread>` from
+  **either** human party. The broker evaluates the message against `resume_state`, resets
+  the round counter, and stamps `unfroze: true`; nothing is minted or stored, and there is
+  no endpoint or MCP tool. Required to move a `frozen` thread (§6).
 - Consent revocation is **RESERVED for v1.1** (WIRE D20): no v1 wire method or CLI
   command sets `revoked`. A receiving human who wants work to stop uses the
   ordinary `needs_human → frozen` cell; no consent-record mutation occurs.
@@ -161,7 +161,7 @@ AUTH §3.4.**
 | 6 | Schema/caps: `kind` in vocabulary; root-legality if `thread_id: null`; kind constraint row (WIRE §5.2); body ≤ 16 KB NFC; envelope ≤ 32 KB; artifact shapes/counts/dedup; result sha-pin rule | `TENFOUR/UNKNOWN_KIND` (`unrecognized_kind` / `cannot_root_thread` / `malformed_for_kind` / `malformed_request`) / `TENFOUR/BODY_TOO_LARGE` / `TENFOUR/ARTIFACT_INVALID` |
 | 7 | Best-effort DLP scan (body + artifact strings) | `TENFOUR/SECRET_DETECTED` |
 | 8 | Thread existence/party: `thread_id` unknown → `THREAD_NOT_FOUND`; sender not a party → `NOT_THREAD_PARTY` (`not_party`) | as listed, `TENFOUR/…` |
-| 9 | State machine: thread not `closed` → else `TERMINAL_THREAD`; thread not `frozen` — unless a valid `consent_ref` is attached, in which case steps 9–13 evaluate against `resume_state` (§6); attached but invalid/expired/used ref → `CONSENT_REQUIRED`; transition cell exists for (kind × state × role) in §4/§5 | `TENFOUR/TERMINAL_THREAD` / `TENFOUR/THREAD_FROZEN` / `TENFOUR/UNKNOWN_KIND` (`illegal_in_state` / `invalid_in_reply_to`) / `TENFOUR/NOT_THREAD_PARTY` (`role_forbidden`) |
+| 9 | State machine: thread not `closed` → else `TERMINAL_THREAD`; thread not `frozen` — unless the send carries `unfreeze: true`, in which case steps 9–13 evaluate against `resume_state` (§6); a message illegal in `resume_state` is rejected by that cell and the unfreeze is NOT consumed; transition cell exists for (kind × state × role) in §4/§5 | `TENFOUR/TERMINAL_THREAD` / `TENFOUR/THREAD_FROZEN` / `TENFOUR/UNKNOWN_KIND` (`illegal_in_state` / `invalid_in_reply_to`) / `TENFOUR/NOT_THREAD_PARTY` (`role_forbidden`) |
 | 10 | `parent_id` equals current head (error carries current head) | `TENFOUR/STALE_HEAD` |
 | 11 | Consent: `accepted` carries a valid `consent {token, granted_via}` gesture block → else `CONSENT_REQUIRED` (`bad_token`); `result` requires `consent_state: granted` → else `CONSENT_REQUIRED` (`consent_not_granted`) | `TENFOUR/CONSENT_REQUIRED` |
 | 12 | Artifact/task `repo` in the pair's invite-time `repo_allowlist` (when configured, WIRE D27) | `TENFOUR/REPO_NOT_ALLOWED` |
@@ -345,9 +345,9 @@ them individually (`q.frozen.<kind>.<role>`, `q.closed.<kind>.<role>`).
   `offered → accepted` machinery, and restores the owner's right to `decline` the
   enlarged task. A non-expanding `change_request` → `in_progress` directly, running
   under the original whole-thread consent (JOURNEYS §2).
-- **[F]** Frozen cells are reached only when §3 step 9 found no valid `consent_ref`.
-  With a valid ref, the send is evaluated against `resume_state` (§6) and this row is
-  never consulted.
+- **[F]** Frozen cells are reached only when §3 step 9 found no `unfreeze: true` on the
+  send. With `unfreeze: true`, the message is evaluated against `resume_state` (§6) and
+  this row is never consulted.
 - **[Y]** The system's `needs_human` is emitted only from inside the round-cap breach
   mutation (§8.4) — v1 has no other system emission. It is parented at the current
   head, stamped server-side within the same transaction, and therefore can never be
@@ -370,29 +370,29 @@ them individually (`q.frozen.<kind>.<role>`, `q.closed.<kind>.<role>`).
 Entering `frozen` records `resume_state` = the state at freeze time. Rate limiting
 (§9) never freezes a thread — it is per-agent, threadless.
 
-### 6.2 Unfreeze (who, how, consent)
+### 6.2 Unfreeze (who, how) — rides `send` (B2)
 
 - **Who:** either human party (JOURNEYS J7: "humans decide"). The system never
   unfreezes.
-- **How:** the human runs the structured gesture `tenfour approve <thread>` (or the
-  MCP `tenfour_confirm` tool), minting a single-use, 24 h-expiry `unfreeze` consent
-  record (§1.6). The agent's next `send` into that thread carries `consent_ref`. The
-  broker then evaluates §3 steps 9–13 **against `resume_state`**; if the transition is
-  legal, the message persists, the thread state becomes that transition's target, the
-  consent record is consumed, and the message is stamped `unfroze: true`. There is no
-  separate "unfreeze message" kind and no system post on unfreeze — the consented
-  message itself is the record (**DECIDED HERE**).
-- **Rejection contract:** no `consent_ref` → `TENFOUR/THREAD_FROZEN` (human_action:
-  run `tenfour approve <thread>`); invalid, expired, already-used, or wrong-thread ref
-  → `TENFOUR/CONSENT_REQUIRED`. A consented send that is illegal in `resume_state`
-  (e.g., `done` with `resume_state: in_progress`) is rejected by the `resume_state`
-  cell and the consent record is NOT consumed (**DECIDED HERE** — a typo must not
-  burn the human's gesture).
-- **Round counter:** **DECIDED HERE:** successful unfreeze resets `rounds_used := 0`
+- **How:** the human runs `tenfour approve <thread>`, which issues a `send` carrying the
+  boolean `unfreeze: true` (B2, WIRE §7.1.3). There is NO unfreeze consent record, no
+  control-plane endpoint, and no MCP tool — unfreeze rides the ordinary send plane. The
+  broker evaluates §3 steps 9–13 **against `resume_state`**; if the transition is legal,
+  the message persists, the thread state becomes that transition's target, the round
+  counter resets, and the message is stamped `unfroze: true`. There is no separate
+  "unfreeze message" kind and no system post on unfreeze — the gestured message itself
+  is the record (**DECIDED HERE**).
+- **Rejection contract:** a normal send (`unfreeze` absent or `false`) into a frozen
+  thread → `TENFOUR/THREAD_FROZEN` (human_action: run `tenfour approve <thread>`). An
+  `unfreeze: true` send that is illegal in `resume_state` (e.g., `done` with
+  `resume_state: in_progress`) is rejected by the `resume_state` cell and the unfreeze
+  is NOT consumed — the thread stays frozen (**DECIDED HERE** — a typo must not burn the
+  human's gesture). `unfreeze: true` on a non-frozen thread is ignored (success-shaped).
+- **Round counter:** **DECIDED HERE:** a successful unfreeze resets `rounds_used := 0`
   and `last_substantive_sender := null`. Loop containment is preserved because every
   reset costs a human gesture: an infinite loop now requires an infinite supply of
   human approvals, which is the human gate working as designed.
-- **`cancel` from frozen:** legal for the initiator *via the same consent path*
+- **`cancel` from frozen:** legal for the initiator *via the same `unfreeze: true` path*
   (`cancel` is legal in every `resume_state`). **DECIDED HERE:** no gestureless
   cancel-from-frozen: nothing moves a frozen thread without a human gesture, with no
   exceptions — one invariant, zero special cases.
@@ -510,7 +510,7 @@ round_admit(thread, msg):
 | 12 | (10, I) | O `needs_human` | status | (10, I) | admit → `frozen` — parties can always escalate at cap |
 | 13 | (10, I) | I `cancel` | status | (10, I) | admit → `closed(cancelled)` — **the cap blocks substantive escalation, never graceful closure (DECIDED HERE)** |
 | 14 | micro-thread (—, null) | I `question` root; then O `answer` | subst; subst | (1, I) → (2, O) | admit; admit → `closed(answered)` — micro-threads cost 2 rounds |
-| 15 | post-unfreeze (0, null), resume `in_progress` | O `result` (with consent_ref) | subst | (1, O) | admit — unfreeze reset makes the next substantive sender round 1 regardless of party |
+| 15 | post-unfreeze (0, null), resume `in_progress` | O `result` (with `unfreeze:true`) | subst | (1, O) | admit — unfreeze reset makes the next substantive sender round 1 regardless of party |
 
 ### 8.4 Atomicity requirement
 
@@ -639,7 +639,7 @@ All strings ship from `strings.ts` (JOURNEYS §4); this spec cites keys, never b
 | `NOT_THREAD_PARTY` | §3 steps 8 (`not_party`), 9 (`role_forbidden`) | §1.3, §2 |
 | `TERMINAL_THREAD` | §3 step 9 | §5, §7 |
 | `THREAD_FROZEN` | §3 step 9 | §6 |
-| `CONSENT_REQUIRED` | §3 steps 9 (bad `consent_ref`), 11 | §1.6, §6 |
+| `CONSENT_REQUIRED` | §3 step 11 (`accepted`/`result` consent gate) | §1.6 |
 | `STALE_HEAD` | §3 step 10 (carries current head) | §1.5 |
 | `REPO_NOT_ALLOWED` | §3 step 12 | §4, §5 [R] |
 | `ROUND_CAP` | §3 step 13 | §8 |

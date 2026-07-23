@@ -98,7 +98,7 @@ the protocol.
 | Rule | Requirement |
 |---|---|
 | ADM-1 | The admin key is a **control-plane** credential: identity lifecycle only. It MUST NOT send, ack, read inboxes, read threads, or subscribe. Presenting it to a data-plane method returns `TENFOUR/AUTH_FAILED`, byte-identical to any bad credential (ENUM-1) — the broker does not confirm that a valid admin key was presented to the wrong plane. |
-| ADM-2 | **DECIDED HERE: the admin key MUST NOT unfreeze a frozen thread or alter any existing thread's round cap.** Unfreezing is exclusively the human-approved `tenfour approve` + `consent_ref` path (STATE §6.2). Rationale: an admin bypass would be a second, weaker unfreeze path and would turn the owner's machine into a loop-containment bypass — the freeze layer is "the strongest claim we make" (DESIGN §5) and admits no privileged exception. `max_rounds` is **fixed per pair at invite issuance** (`admin.issueInvite.max_rounds`, WIRE §8.2 D27; default 10, clamp 1..12 — founder-decided) and copied onto each thread at creation: the admin sets it only when issuing an invite, and never retroactively for existing threads or the existing pair. |
+| ADM-2 | **DECIDED HERE: the admin key MUST NOT unfreeze a frozen thread or alter any existing thread's round cap.** Unfreezing is exclusively the human `tenfour approve` → send-borne `unfreeze: true` path (B2, STATE §6.2): unfreeze RIDES `send`, it is NOT a control-plane endpoint, and no credential (admin key included) has an unfreeze method. Rationale: an admin bypass would be a second, weaker unfreeze path and would turn the owner's machine into a loop-containment bypass — the freeze layer is "the strongest claim we make" (DESIGN §5) and admits no privileged exception. `max_rounds` is **fixed per pair at invite issuance** (`admin.issueInvite.max_rounds`, WIRE §8.2 D27; default 10, clamp 1..12 — founder-decided) and copied onto each thread at creation: the admin sets it only when issuing an invite, and never retroactively for existing threads or the existing pair. |
 | ADM-3 | Broker data export / deletion (retention policy, DESIGN §8) is an *operator* action through the operator's own infrastructure access, not a tenfour/1 method. The admin key grants no read path to message bodies. **DECIDED HERE.** SECURITY.md already states the broker operator can read bodies; this spec simply declines to add an API for it. |
 | ADM-4 | `admin.rotateKey` rotates the admin key with the same overlap semantics as agent rotation (§9), authenticated by the current admin key. |
 
@@ -117,7 +117,7 @@ numbers, as WIRE §7.1 D19 and STATE-MACHINE §3:
 | 6 | schema/caps: kind recognized, kind constraints, size caps, artifact shapes | `UNKNOWN_KIND` / `BODY_TOO_LARGE` / `ARTIFACT_INVALID` |
 | 7 | secret scan (CRED-4 corpus included) | `SECRET_DETECTED` |
 | 8 | object authorization (§7): thread exists; sender is a party | `THREAD_NOT_FOUND` / `NOT_THREAD_PARTY` |
-| 9 | state machine: not terminal; not frozen (valid `consent_ref` evaluates against `resume_state`); transition cell exists | `TERMINAL_THREAD` / `THREAD_FROZEN` / `UNKNOWN_KIND` / `NOT_THREAD_PARTY` (`role_forbidden`) |
+| 9 | state machine: not terminal; not frozen (unless the send carries `unfreeze: true`, which evaluates the message against `resume_state`, B2); transition cell exists | `TERMINAL_THREAD` / `THREAD_FROZEN` / `UNKNOWN_KIND` / `NOT_THREAD_PARTY` (`role_forbidden`) |
 | 10 | head rule | `STALE_HEAD` |
 | 11 | consent (R8/R9) | `CONSENT_REQUIRED` |
 | 12 | pair `repo_allowlist` (D27) | `REPO_NOT_ALLOWED` |

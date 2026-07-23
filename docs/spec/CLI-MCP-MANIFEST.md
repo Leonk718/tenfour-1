@@ -89,7 +89,7 @@ Flag behavior:
 | Flag | Effect | Files touched |
 |---|---|---|
 | `--create-broker` | Runs Convex CLI (login + deploy) against bundled `broker-src/`; mints admin key → `admin.json` (0600/icacls); issues the owner agent (prompts for agent name, e.g. `brian/design`) → `credentials.json`; prompts for `allowed_hosts` (default `["github.com"]`, ARTIFACTS ART-030); auto-runs `tenfour doctor` at the end | `admin.json`, `credentials.json`, `config.json`, `broker-src/` |
-| `--workspace` | MUST be run inside a git repo. Merges the per-project gate rules (§5.5) into `<repo>/.claude/settings.json` (same backup + sentinel discipline as step 2) and appends `{path, repo_id}` to `workspaces[]` in `config.json`. **DECIDED HERE:** this is the mechanism that "designates a repo as a tenfour workspace"; doctor check DOC-09 warns on target repos not so tagged | `<repo>/.claude/settings.json`, `config.json` |
+| `--workspace` | MUST be run inside a git repo. Merges the per-project gate rules (§5.5) into `<repo>/.claude/settings.json` (same backup + sentinel discipline as step 2) and appends ONLY the repo's absolute path to `workspaces[]` (a `string[]`) in `config.json` (B3; `config.ts` unchanged). The canonical `repo_id` is **derived on read** from the checkout's `origin` remote (ART-081), never stored in config. **DECIDED HERE:** this is the mechanism that "designates a repo as a tenfour workspace"; doctor check 9 warns on target repos not so tagged | `<repo>/.claude/settings.json`, `config.json` |
 | `--same-human <peer>` | J5: pre-writes standing rules for a same-human peer into `config.json`; skips the pairing ceremony copy in output | `config.json` |
 | `--yes` | Non-interactive: accept defaults, skip opt-in prompts (gate-rule prompt answers "no" — consent is never defaulted to yes) | — |
 
@@ -167,12 +167,12 @@ local file edits.
 | Aspect | Specification |
 |---|---|
 | Synopsis | `tenfour approve <thread-id>` (ULID or ≥ 8-char unambiguous prefix, as `accept`) |
-| Purpose | The unfreeze gesture (STATE §6.2; WIRE §7.1.3 D21): mints a single-use, 24 h-expiry unfreeze consent record for a `frozen` thread |
+| Purpose | The unfreeze gesture (STATE §6.2; WIRE §7.1.3, B2): unfreeze rides `send` — this command issues a `send` carrying `unfreeze: true` for a `frozen` thread. No consent record, no endpoint, no MCP tool |
 | Requires | Network; `credentials.json` |
 | Operator | **Either** human party (J7: "humans decide") |
-| Behavior | Fetch thread → verify state `frozen` → print the freeze reason, `resume_state`, and round budget **before** minting → mint the unfreeze consent record → print the `consent_ref` note: the agent's next send into the thread carries `consent_ref` and resumes it (stamped `unfroze: true`; round counter resets) |
-| Errors → exit 1 | `TENFOUR/THREAD_NOT_FOUND`, `NOT_THREAD_PARTY`, `TERMINAL_THREAD`; approving a non-frozen thread is a success-shaped no-op ("thread is not frozen — nothing to approve", exit 0) |
-| Side effects | Broker unfreeze consent record; no message is sent by this command |
+| Behavior | Fetch thread → verify state `frozen` → print the freeze reason, `resume_state`, and round budget **before** sending → issue a `send` with `unfreeze: true`. The broker atomically restores the thread to `resume_state`, resets the round counter (`rounds_used := 0`, `last_substantive_sender := null`), applies the message iff it is legal in `resume_state` (else rejects WITHOUT resuming — a typo does not burn the gesture), and stamps the persisted message `unfroze: true` |
+| Errors → exit 1 | `TENFOUR/THREAD_NOT_FOUND`, `NOT_THREAD_PARTY`, `TERMINAL_THREAD`; a message illegal in `resume_state` → that cell's error (the thread stays frozen). Approving a non-frozen thread is a success-shaped no-op ("thread is not frozen — nothing to approve", exit 0) |
+| Side effects | One broker `send` with `unfreeze: true`; local outbound ops entry (R11) |
 
 ### 1.6 `tenfour token`
 
@@ -223,7 +223,7 @@ Errors: `TENFOUR/AUTH_FAILED`, `AUTH_REVOKED` (already revoked ⇒ success-shape
 | `invite` | — | — | — | — | invite record |
 | `join` | merge (via implied init) | config + creds | yes | — | redemption |
 | `accept` | — | — | journal/ops | — | message + consent |
-| `approve` | — | — | journal | — | unfreeze consent record |
+| `approve` | — | — | journal/ops | — | one `send` (`unfreeze: true`) |
 | `token` | — | creds | — | — | token hash |
 | `doctor` | read-only | read-only | temp journal only | read-only | `diag.ping` only |
 | `status` | — | read-only | read-only (`--clear-ops`: journal ops acknowledgment) | — | read-only |
@@ -233,21 +233,21 @@ Errors: `TENFOUR/AUTH_FAILED`, `AUTH_REVOKED` (already revoked ⇒ success-shape
 
 ## 2. MCP tool manifest
 
-Five tools served by `bin/tenfour-mcp.mjs`, registered at user scope. Tool input
-schemas set `additionalProperties:false`; unknown properties fail locally with a
-teaching message (never reach the broker). `client_id` is **never** a tool input —
-the adapter mints it (JOURNEYS §4).
+EXACTLY four tools served by `bin/tenfour-mcp.mjs`, registered at user scope:
+`tenfour_send`, `tenfour_ack`, `tenfour_thread`, `tenfour_wait` (B1/B15). There is NO
+MCP consent/confirm tool — consent-acceptance is the CLI `tenfour accept` gesture plus
+standing-rule config only (CONSENT §3), and unfreeze rides `send` via `tenfour approve`
+(B2). Tool input schemas set `additionalProperties:false`; unknown properties fail
+locally with a teaching message (never reach the broker). `client_id` is **never** a
+tool input — the adapter mints it (JOURNEYS §4).
 
-**DECIDED HERE (amended):** the R8 "MCP confirm tool" is named **`tenfour_confirm`**
-— matching CONSENT.md §3.2 and `strings.ts TOOL_CONFIRM_DESCRIPTION` (and avoiding
-collision with the CLI command `tenfour accept`).
+Schema source of truth — **REQUIRED IMPLEMENTATION OUTPUT (target structure), NOT the
+current authority.** In the current tree ALL wire, MCP, and CLI schemas live in the
+monolithic `packages/schema/src/protocol.ts` (plus `config.ts`); it MUST be split into
+`src/wire/*`, `src/mcp/*`, and `src/cli/exit-codes.ts` (with `WireErrorSchema` and the
+MCP input/output schemas) per this table. These modules do NOT exist yet:
 
-Schema source of truth — the `packages/schema` package MUST export these modules
-(normative module map; the package is authored against this table; in the current
-tree the `wire/*` exports all live in `packages/schema/src/protocol.ts`, which
-re-exports per this map when the split lands):
-
-| Module | Exports |
+| Module (target — does not exist yet) | Exports |
 |---|---|
 | `packages/schema/src/wire/envelope.ts` | `SendRequestSchema`, `StampedEnvelopeSchema` |
 | `packages/schema/src/wire/kinds.ts` | `KindSchema` (10 literals) |
@@ -259,7 +259,6 @@ re-exports per this map when the split lands):
 | `packages/schema/src/mcp/ack.ts` | `TenfourAckInputSchema`, `TenfourAckOutputSchema` |
 | `packages/schema/src/mcp/thread.ts` | `TenfourThreadInputSchema`, `TenfourThreadOutputSchema` |
 | `packages/schema/src/mcp/wait.ts` | `TenfourWaitInputSchema`, `TenfourWaitOutputSchema` |
-| `packages/schema/src/mcp/confirm.ts` | `TenfourConfirmInputSchema`, `TenfourConfirmOutputSchema` |
 | `packages/schema/src/cli/exit-codes.ts` | `EXIT` constants (§0 CLI-001, §4 DOC-12x) |
 
 **MCP-001** Protocol rejections are returned as structured tool **results** (not MCP
@@ -289,9 +288,9 @@ result content steers model behavior; transport-level errors trigger repair loop
 | `"error"` | MCP-001 shape |
 
 **MCP-010** `tenfour_send` MUST reject `kind:accepted` locally with the message
-owned by `strings.ts` export `SEND_ACCEPTED_REJECTED` (which names `tenfour accept
-<thread>` and the `tenfour_confirm` tool — never `tenfour_accept`, which does not
-exist). (R8: `accepted` is structurally gated, not model-disciplined.)
+owned by `strings.ts` export `SEND_ACCEPTED_REJECTED` (which names the CLI `tenfour
+accept <thread>` gesture and standing-rule config — there is no MCP consent tool, B1).
+(R8: `accepted` is structurally gated, not model-disciplined.)
 
 **MCP-011** Outbound idempotency (R11): before transmit, the adapter persists
 `prepared(client_id, content_hash)` → `sending` → `confirmed` in the journal ops
@@ -321,14 +320,14 @@ R7) — never a phantom outbox.
 | Output (message) | `{status:"message", envelope:<wrapped delivery>, attempt_id}` — journaled through the same local client as hooks (atomic claim; once per attempt) |
 | Output (timeout) | `{status:"timeout", note:<strings.ts WAIT_TIMEOUT_NOTE>}` |
 
-### 2.5 `tenfour_confirm` — `mcp/confirm.ts`
+### 2.5 (removed) — there is no MCP consent/confirm tool (B1)
 
-| Input | `{thread_id, consent_token}` — the token is minted by the broker per offered task and surfaced in the delivery wrapper (R8: echo proves the model read the surfaced message under a human "go"; the token is wire-visible to both parties per WIRE D16, but only the recipient's `accepted` is role-legal) |
-|---|---|
-| Gesture | The Claude Code **permission prompt** this tool raises is the human consent gesture (CONSENT §3.2): ask-rule required, allow-rule forbidden (F-3). It also serves as the MCP-side unfreeze gesture (STATE §6.2) |
-| Output | `{status:"accepted", envelope, round:{n,max}}`; the adapter sends `kind:accepted` with `consent: {token, granted_via: "mcp_confirm"}`; the broker writes the R9 consent record `{granted_via, granted_at, scope: "whole_thread"}` |
-| Token mismatch | **DECIDED HERE:** `{status:"error", code:"TENFOUR/CONSENT_REQUIRED", ...}` with the copy owned by `strings.ts` export `CONFIRM_TOKEN_MISMATCH` |
-| Other errors | `TERMINAL_THREAD`, `THREAD_FROZEN`, `NOT_THREAD_PARTY`, `THREAD_NOT_FOUND`, `STALE_HEAD` (adapter auto-refreshes head once, as CLI §1.4) |
+**DECIDED HERE (B1/B15):** tenfour serves EXACTLY the four tools above. There is NO
+MCP consent/confirm tool. Consent-acceptance is the CLI `tenfour accept` gesture plus
+standing-rule config (CONSENT §3); unfreeze rides `send` via the CLI `tenfour approve`
+(which issues a send with `unfreeze: true`, B2, STATE §6.2). A stale consent token
+surfaces as `TENFOUR/CONSENT_REQUIRED` on the CLI accept path (`data.reason:
+"bad_token"`).
 
 ### 2.6 Broker diagnostic method
 
@@ -456,7 +455,7 @@ one numbered list, no second manifest.
 | 10 | `journal-integrity` | live journal readable, seq-gap-free, fsync-able | read-only scan + fsync probe on a scratch file in `journal/` | clean | FAIL: gap/corruption + likely cause named (e.g. "dashboard hand-edit", "restored from cloud sync") | — | — (read-only on live) | — |
 | 11 | `repo-map` | every `repos` entry is a git checkout with the configured remote; ancestor-check machinery works | `git -C <path> rev-parse --git-dir`; `git cat-file -e HEAD^{commit}`; verify `refs/remotes/<remote>` exists; same env caps as ARTIFACTS §8.2 (no network) | all entries usable | FAIL per entry + one next action | — | — | — |
 | 12 | `notify-toast` | OS notification dispatch | dispatch a test toast via the bundled cross-platform notifier | dispatch call succeeded | Copy is honest: `test toast dispatched (if you didn't see it, check Focus Assist / notification settings)`. FAIL only if dispatch call errors | — | — | — |
-| 13 | `consent-ask-rule` | the R8 consent gesture fires (CONSENT §10) | for each tagged workspace: an ask-rule covers `tenfour_confirm`; scan every settings scope doctor can read for allow-rules matching it | ask-rule present everywhere, no allow-rule anywhere | FAIL: missing ask-rule or any allow-rule matching `tenfour_confirm` (F-3 — release-blocking) | — | — | yes (install ask-rule with consent prompt) |
+| 13 | `consent-surface` | the consent surface is CLI-only (CONSENT §10, B1) | enumerate the served MCP tools; confirm the set is EXACTLY `tenfour_send`/`tenfour_ack`/`tenfour_thread`/`tenfour_wait` and that `tenfour_send` rejects `kind:accepted` (MCP-010) | exactly four tools, no consent/confirm tool | FAIL: any served consent/confirm MCP tool, or `tenfour_send` accepting `kind:accepted` (F-3 — release-blocking) | — | — | — |
 | 14 | `workspace-tagged` | workspace coverage (CONSENT §10) | every repo named in `allowed_repos` or a queued inbound task appears (by derived repo-id) in `workspaces[]` | all covered | WARN: "untagged target repo — run tenfour init --workspace there" | — | — | — |
 
 **DOC-120** Checks 5–7 share a single `diag.ping` round trip.
@@ -493,8 +492,9 @@ Every CLI-/MCP-/DOC-/HK-/WIN- rule maps to a test. Mandatory minimums: settings.
 merge idempotency (run `init` 3×, byte-identical after first — HK-003); invalid
 settings JSON aborts untouched (CLI §1.1 step 2); `join` decline-at-confirm sends
 nothing (network tap — §1.3.3); duplicate `tenfour_send` returns R7 shape (MCP §2.1);
-`tenfour_send` local rejection of `kind:accepted` (MCP-010); consent-token mismatch
-copy (MCP §2.5); Stop hook no-block under `stop_hook_active` (HK-005); PostToolUse
+`tenfour_send` local rejection of `kind:accepted` (MCP-010); the served MCP tool set is
+exactly four with no consent/confirm tool (check 13, B1); Stop hook no-block under
+`stop_hook_active` (HK-005); PostToolUse
 hook zero-network under `unshare -rn` (HK-004); doctor spawns hooks with a
 space-containing profile path on the Windows CI runner (check 8); doctor exit codes
 0/1/2/4 (DOC-121); icacls sequence applied and parsed (WIN-002 + check 2).

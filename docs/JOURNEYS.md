@@ -67,11 +67,12 @@ The mailbox metaphor governs every string: tenfour is a mailbox, not a doorbell.
 - **Secrets on Windows**: `icacls` inheritance-strip + sole-user grant (Credential
   Manager/DPAPI rejected: no maintained Node bindings, breaks WSL + CI). Doctor parses
   the ACL and fails on Everyone/BUILTIN\Users.
-- **`tenfour doctor`**: 12 named checks, **execute-not-inspect** (spawns the exact hook
-  command strings and round-trips a self-message through the broker; a quoting bug on
-  `C:\Users\Jonathan Smith` fails loudly here instead of becoming silent hook death).
-  Toast check wording is honest: "test toast dispatched (if you didn't see it, check
-  Focus Assist)". CI-friendly exit codes; `--fix` where safe.
+- **`tenfour doctor`**: 14 named checks, **execute-not-inspect** (spawns the exact hook
+  command strings against an **isolated temp journal**, never the live journal; the ONLY
+  broker method doctor calls is `diag.ping` — there is **no self-message** round trip; a
+  quoting bug on `C:\Users\Jonathan Smith` fails loudly here instead of becoming silent
+  hook death). Toast check wording is honest: "test toast dispatched (if you didn't see
+  it, check Focus Assist)". CI-friendly exit codes; `--fix` where safe.
 - **First round-trip**: the celebration moment rides `diag.ping` (§8 R6 — superseding
   the earlier `purpose:"hello"` thread carve-out): `tenfour join`'s final step pings
   with `mark:"hello"`; the owner side sees it via `tenfour status` / `tenfour doctor`.
