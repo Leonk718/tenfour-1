@@ -140,8 +140,8 @@ checksum, (f) probes which field was wrong.
 |---|---|---|---|
 | Replay after redemption | AUTH INV-5/INV-7 (atomic `outstanding→redeemed` CAS) | **ADV-13**: redeem twice → second `INVITE_INVALID` `reason:redeemed` | COVERED |
 | Concurrent double-redeem | AUTH INV-7 (CAS loser loses) | **ADV-14**: two simultaneous redeems → exactly one `ok`, one `INVITE_INVALID` | COVERED |
-| Expired code | AUTH INV-6; WIRE §8.4 (`INVITE_EXPIRED`) | **ADV-15**: redeem past `exp` → `INVITE_EXPIRED` | COVERED — **but which `exp`? see C-9** |
-| Brute-force secret | AUTH INV-4 (128-bit) / WIRE D29 (256-bit); WIRE D30 + §10 (5 failures → lockout); AUTH ENUM-3 (10 auth-fails/min/source) | **ADV-16**: 5 bad redemptions of one code → `INVITE_INVALID` `reason:lockout` | COVERED (lockout) — secret width contradictory (C-4) |
+| Expired code | AUTH INV-6; WIRE §8.4 (`INVITE_EXPIRED`) | **ADV-15**: redeem past `exp` → `INVITE_EXPIRED` | COVERED — `exp` is ms epoch, TTL 24 h / 86400 s (one authority) |
+| Brute-force secret | AUTH INV-4 / WIRE D29 (256-bit secret, one authority); WIRE D30 + §10 (5 failures → lockout); AUTH ENUM-3 (10 auth-fails/min/source) | **ADV-16**: 5 bad redemptions of one code → lockout | COVERED |
 | Field-probe oracle | AUTH INV-6 (cause-uniform `INVITE_INVALID` across unknown/wrong-secret/redeemed/revoked/superseded/malformed) | **ADV-17**: diff serialized bodies of all non-expiry failures → byte-identical | COVERED |
 | Payload tamper vs checksum | AUTH §6.2 / WIRE §8.3 (verify check locally before network; INV-2 "not crypto") | **ADV-18**: flip one payload byte → local checksum fail before any network call | **COVERED** — one checksum format (6-char b64url SHA-256 truncation) |
 
