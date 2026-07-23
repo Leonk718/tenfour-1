@@ -1,0 +1,7 @@
+{
+  "name": "tenfour",
+  "private": true,
+  "version": "0.0.0",
+  "workspaces": ["packages/*"],
+  "license": "MIT"
+}
