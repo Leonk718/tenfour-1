@@ -100,10 +100,9 @@ to double-deliver, (c) suppress delivery to the live session.
 | Two subscriptions, same token | AUTH SUB-5 (warn + last-connect-wins, **not** an auth error) | **ADV-08**: second subscribe → old subscription demoted, no `CLIENT_ID_CONFLICT` | COVERED |
 
 **Residual / escalation.**
-- **C-13 (MAJOR):** the reclaim window the test in ADV-06/07 must assert is
-  **contradictory**: WIRE §7.2 D23 and `protocol.ts LIMITS.CLAIM_LEASE_MS` = **15 min**;
-  DELIVERY DEL-04 = **300 s (5 min)**, and DELIVERY's crash matrix C2 hard-codes
-  "worst-case extra delay 5 min." No single expiry can be tested.
+- **C-13 (RESOLVED):** the claim lease is **5 min** everywhere — WIRE §7.2 D23,
+  `protocol.ts LIMITS.CLAIM_LEASE_MS` = 300_000, DELIVERY DEL-04, and crash matrix C2 all
+  agree. ADV-06/07 assert the single 5-min expiry.
 - **CLOSED (was MINOR R2 residual):** the demoted-ack channel is now shut by rule:
   an ack referencing a **superseded** attempt is rejected `TENFOUR/AUTH_FAILED`
   (WIRE D23; DELIVERY DEL-10, DEL-14/§3.2). A demoted session can neither claim
@@ -118,31 +117,18 @@ arbitrary domain inside a `github.com` artifact, (d) homoglyph a trusted host.
 | Vector | Defending clause | Proving test | Verdict |
 |---|---|---|---|
 | Broker fetch / SSRF | DESIGN §4.5 (never fetch/clone/checkout); ARTIFACTS ART-043, ART-049c, ART-091; R5 replaces `ls-remote` with local ancestor check (ARTIFACTS §8.3, ART-087 offline test) | **ADV-09**: run the full send + ancestor path under `unshare -rn` → passes; zero network syscalls | **COVERED** |
-| Host allowlist (`evil-github.com`) | ARTIFACTS ART-030/031/032 (`allowed_hosts`, exact byte equality, default `["github.com"]`) | **ADV-10**: `repo` host not in `allowed_hosts` → `REPO_NOT_ALLOWED` `reason:host_not_allowed` | **UNCOVERED — see below** |
-| Link smuggling (url host ≠ repo host) | ARTIFACTS ART-049b (url host MUST equal repo host) | **ADV-11**: `pull_request` with `url` host ≠ repo host → `ARTIFACT_INVALID` `reason:url_host_mismatch` | **UNCOVERED — see below** |
-| Homoglyph / IDN | ARTIFACTS ART-022 (punycode-only, no IDN on wire) | **ADV-12**: non-ASCII host byte → rejected | Depends on the same broken grammar |
+| Host allowlist (`evil-github.com`) | ARTIFACTS ART-030/031/032 (`allowed_hosts`, exact byte equality, default `["github.com"]`) | **ADV-10**: `repo` host not in `allowed_hosts` → `REPO_NOT_ALLOWED` `reason:host_not_allowed` | **COVERED** — three-segment host/owner/name grammar carries the host; broker allowlist (step 12) rejects |
+| Link smuggling (url host ≠ repo host) | ARTIFACTS ART-049b (url host MUST equal repo host) | **ADV-11**: `pull_request` with `url` host ≠ repo host → `ARTIFACT_INVALID` `reason:url_host_mismatch` | **COVERED** — `protocol.ts urlError` enforces url host === repo host |
+| Homoglyph / IDN | ARTIFACTS ART-022 (punycode-only, no IDN on wire) | **ADV-12**: non-ASCII host byte → rejected | **COVERED** — REPO_SLUG_REGEX is lowercase-ASCII only |
 
-**Residual / escalation — BLOCKING (C-3).** The entire host-based defense is
-**inoperable against the wire schema.** ARTIFACTS §2.1 defines the canonical repo-id as
-`host "/" owner "/" name` (two slashes, e.g. `github.com/careswift/web`) and builds
-`allowed_hosts` (ART-030–032) and `url_host_mismatch` (ART-049b) on that host segment.
-But `WIRE.md §3` and `protocol.ts REPO_SLUG_REGEX` define `RepoSlug` as
-`^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$` — **`owner/name`, one slash, no host**
-— and the `§6` content-hash test vector uses `careswift/webapp`. Consequences a hostile
-auditor exploits:
-1. A value like `github.com/careswift/web` **fails** `RepoSlugSchema` (two slashes) — the
-   ARTIFACTS grammar is unrepresentable on the wire.
-2. With `owner/name` only, there is **no host field for ART-031 to check** — the
-   allowed-hosts defense (ADV-10) has nothing to evaluate; it is dead spec.
-3. ART-049b compares "url host" to "the artifact's repo host" — the repo **has no host**,
-   so the link-smuggling check (ADV-11) cannot compute and PR-url host smuggling is
-   **UNCOVERED**.
-
-SSRF remains covered by the no-fetch guarantee, so blast radius is limited to
-mis-routing + a human clicking a smuggled link. But two named defenses do not function.
-**Fix**: make `protocol.ts`/`WIRE.md` the host-carrying grammar (three-segment) OR strip
-host machinery from ARTIFACTS and re-found link-smuggling on a different check; then
-re-issue the §6 hash vector.
+**Residual / escalation — RESOLVED.** The host-based defense is fully operative:
+`protocol.ts REPO_SLUG_REGEX` and `WIRE.md §3` define `RepoSlug` as the three-segment
+`host/owner/name` (lowercase ASCII, optional `:port`), matching ARTIFACTS §2.1, and the
+`§6` content-hash vector uses `github.com/careswift/web`. Therefore the allowed-hosts
+defense (ADV-10) evaluates the real host (broker allowlist → `REPO_NOT_ALLOWED`);
+`urlError` enforces url host === repo host (ADV-11, ART-049b); and the lowercase-ASCII
+grammar rejects non-ASCII/homoglyph hosts (ADV-12). SSRF stays covered by the no-fetch
+guarantee. All three named defenses function; nothing BLOCKING remains.
 
 ### A4 — Invite replay / expiry abuse
 
@@ -157,25 +143,20 @@ checksum, (f) probes which field was wrong.
 | Expired code | AUTH INV-6; WIRE §8.4 (`INVITE_EXPIRED`) | **ADV-15**: redeem past `exp` → `INVITE_EXPIRED` | COVERED — **but which `exp`? see C-9** |
 | Brute-force secret | AUTH INV-4 (128-bit) / WIRE D29 (256-bit); WIRE D30 + §10 (5 failures → lockout); AUTH ENUM-3 (10 auth-fails/min/source) | **ADV-16**: 5 bad redemptions of one code → `INVITE_INVALID` `reason:lockout` | COVERED (lockout) — secret width contradictory (C-4) |
 | Field-probe oracle | AUTH INV-6 (cause-uniform `INVITE_INVALID` across unknown/wrong-secret/redeemed/revoked/superseded/malformed) | **ADV-17**: diff serialized bodies of all non-expiry failures → byte-identical | COVERED |
-| Payload tamper vs checksum | AUTH §6.2 / WIRE §8.3 (verify check locally before network; INV-2 "not crypto") | **ADV-18**: flip one payload byte → local checksum fail before any network call | **UNCOVERED — checksum defined two ways (C-4)** |
+| Payload tamper vs checksum | AUTH §6.2 / WIRE §8.3 (verify check locally before network; INV-2 "not crypto") | **ADV-18**: flip one payload byte → local checksum fail before any network call | **COVERED** — one checksum format (6-char b64url SHA-256 truncation) |
 
-**Residual / escalation.**
-- **BLOCKING (C-4):** the invite code is specified as **two incompatible formats.**
-  WIRE §8.3 D29 + `protocol.ts` (`InviteCodePayloadSchema`, `INVITE_CODE_REGEX`): check =
-  **6 base64url chars of SHA-256(payload)**; secret = **256-bit / 43 chars**; `exp` =
-  **ms epoch**; payload keys are full words (`agent`,`broker_url`,`exp`,`invite_id`,
-  `secret`,`v`) with **no `pair_with`**. AUTH §6.2 D29: check = **8-hex-char CRC32C**;
-  secret = **128-bit / 16 bytes**; `e` = **unix seconds**; keys are short
-  (`v,b,i,a,p,s,e`) **with `p`=pair_with**. The regexes even disagree
-  (`...\.[A-Za-z0-9_-]{6}$` vs `...\.[0-9a-f]{8}$`). ADV-18's "verify checksum locally
-  before network" — the paste-mangling + tamper defense and the JOURNEYS §3
-  "joining as X to Y — correct?" prompt — **cannot be built to one standard.**
-- **MAJOR (C-9):** invite lifetime is 24 h (WIRE §8.2 `ttl_s` default 86400 +
-  `protocol.ts INVITE_TTL_DEFAULT_S`) vs a fixed 72 h with no parameter (AUTH §6.1
-  "issuance + 72 h exactly", INV-4) vs "--ttl default 72 hours" (CLI-MCP §1.2). ADV-15
-  cannot pin the boundary.
-- **MINOR:** AUTH's `INVITE_INVALID` reason list (INV-6) omits `lockout`, which
-  WIRE/`protocol.ts` include; AUTH §15 register also omits it.
+**Residual / escalation — RESOLVED.**
+- **C-4 (RESOLVED):** ONE invite format — WIRE §8.3 D29 + `protocol.ts`
+  (`InviteCodePayloadSchema`, `INVITE_CODE_REGEX`): check = 6 base64url chars of the first
+  4 bytes of SHA-256(payload); secret = 256-bit / 43 base64url chars; `exp` = ms epoch;
+  full-word payload keys (`agent,broker_url,exp,invite_id,secret,v`), no `pair_with`.
+  AUTH §6.2/INV-2/INV-4/§15 reg 8 reference this authority. ADV-18 verifies the one
+  checksum locally before any network call.
+- **C-9 (RESOLVED):** invite lifetime is 24 h / 86400 s everywhere — WIRE §8.2 `ttl_s`
+  default + `protocol.ts INVITE_TTL_DEFAULT_S`, AUTH §6.1, CLI-MCP §1.2; clamp 300..604800.
+  ADV-15 pins the boundary at the parameterized default.
+- **INVITE_INVALID carries no `data.reason`** (AUTH INV-6): redemption failures are
+  byte-identical across causes (no oracle), so there is no reason list to omit.
 
 ### A5 — Duplicate ambiguity: retry after timeout with content drift
 

@@ -364,10 +364,12 @@ export function normalizeBody(s: string): string {
 }
 
 /**
- * Canonical JSON used for the SINGLE byte-cap measurement (B10): keys sorted at every
+ * Canonical JSON used for the ENVELOPE and ARTIFACT byte caps (B10): keys sorted at every
  * level, strings NFC-normalized, absent optionals (undefined) omitted, array (artifact)
  * order preserved as sent post-dedup. Zod has already stripped unknown fields by the
- * time this runs. No ad-hoc JSON.stringify sizing lives anywhere else.
+ * time this runs. (The BODY cap is measured separately — see the two-measurement note in
+ * sharedEnvelopeRefinement — because a lone string's byte length, not its JSON encoding,
+ * is the correct measure.)
  */
 export function canonicalJson(value: unknown): string {
   if (value === undefined) return 'null';
@@ -383,9 +385,26 @@ export function canonicalJson(value: unknown): string {
   return `{${parts.join(',')}}`;
 }
 
-/** UTF-8 byte length of the canonical JSON of `value` (B10 — body, artifact, envelope caps). */
+/** UTF-8 byte length of the canonical JSON of `value` (B10 — envelope and artifact caps only). */
 export function canonicalBytes(value: unknown): number {
   return utf8Bytes(canonicalJson(value));
+}
+
+/**
+ * Best-effort DLP secret scan (step 7 / SECRET_DETECTED). Deliberately conservative: it
+ * catches common credential shapes, not every secret. The primary control is the
+ * refs-not-content norm; this is a backstop, not a guarantee (SECURITY.md states this).
+ */
+export const SECRET_PATTERNS: readonly RegExp[] = [
+  /AKIA[0-9A-Z]{16}/, // AWS access key id
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----/, // PEM private key block
+  /\bsk-[A-Za-z0-9]{20,}\b/, // sk-… style API tokens
+  /\bghp_[A-Za-z0-9]{36}\b/, // GitHub personal access token
+  /\bxox[baprs]-[A-Za-z0-9-]{10,}/, // Slack token
+  /\b(?:password|passwd|secret|api[_-]?key|access[_-]?token|token)\s*[:=]\s*\S{6,}/i, // key=value secret
+];
+export function scanSecret(text: string): boolean {
+  return SECRET_PATTERNS.some((re) => re.test(text));
 }
 
 /**
@@ -962,7 +981,7 @@ export const RawSendRequestSchema = z.object({
     parent_id: z.unknown().optional(),
     in_reply_to: z.unknown().optional(),
     to: z.unknown().optional(),
-    kind: z.string(), // loose: any string; unknown kinds do NOT fail here (B9)
+    kind: z.unknown().optional(), // loose: missing/any-typed; kind is decided in checkSendSemantics (B9)
     repo: z.unknown().optional(),
     body: z.unknown().optional(),
     artifacts: z.unknown().optional(),
@@ -989,6 +1008,8 @@ const CHECK_HUMAN_ACTION: Partial<Record<ErrorCode, string>> = {
   'TENFOUR/BODY_TOO_LARGE':
     'Put the detail in a pushed commit or PR and send a short body carrying the artifact reference.',
   'TENFOUR/ARTIFACT_INVALID': 'Fix the named artifact field. For an unpushed sha: push first, then send.',
+  'TENFOUR/SECRET_DETECTED':
+    'A secret-shaped value is in your message. Remove it, rotate it if it was real, and send a reference instead.',
 };
 
 function checkFail(code: ErrorCode, reason?: string): { ok: false; code: ErrorCode; reason?: string; human_action: string } {
@@ -1009,22 +1030,29 @@ function checkFail(code: ErrorCode, reason?: string): { ok: false; code: ErrorCo
  *   commit
  */
 
-/** Step 1: version. The one fully request-decidable step with no higher-precedence step. */
+/**
+ * Step 1: version. It MUST win even when the rest of the request is malformed, so the two
+ * protocol fields are read as loosely as possible BEFORE any structural requirement — a
+ * bad version with a missing/garbage envelope still returns UNSUPPORTED_VERSION, not a
+ * malformed_request. Only after version passes does the permissive raw parse run.
+ */
 export function checkVersion(raw: unknown): CheckResult<RawSendRequest> {
-  const parsed = RawSendRequestSchema.safeParse(raw);
-  if (!parsed.success) return checkFail(ErrorCode.UNKNOWN_KIND, 'malformed_request');
-  const r = parsed.data;
-  if (r.protocol !== PROTOCOL_VERSION || r.envelope.protocol !== PROTOCOL_VERSION) {
+  const top = (raw ?? {}) as Record<string, unknown>;
+  const env = (top.envelope ?? {}) as Record<string, unknown>;
+  if (top.protocol !== PROTOCOL_VERSION || env.protocol !== PROTOCOL_VERSION) {
     return checkFail(ErrorCode.UNSUPPORTED_VERSION);
   }
-  return { ok: true, value: r };
+  const parsed = RawSendRequestSchema.safeParse(raw);
+  if (!parsed.success) return checkFail(ErrorCode.UNKNOWN_KIND, 'malformed_request');
+  return { ok: true, value: parsed.data };
 }
 
 /**
- * Steps 6–7: kind recognition (UNKNOWN_KIND, never a Zod enum error), then the full
+ * Steps 6–7: (6) kind recognition (UNKNOWN_KIND, never a Zod enum error), then the full
  * request/envelope schema, caps, and artifact rules with the body NFC-normalized first
- * (B4). The broker MUST call this only AFTER clearing DB steps 2–5, so a step-6 verdict
- * can never preempt a higher-precedence step-2..5 failure in the real pipeline.
+ * (B4); (7) a best-effort DLP secret scan over the body and artifact strings, returning
+ * SECRET_DETECTED. The broker MUST call this only AFTER clearing DB steps 2–5, so a
+ * step-6/7 verdict can never preempt a higher-precedence step-2..5 failure.
  */
 export function checkSendSemantics(raw: RawSendRequest): ValidateSendResult {
   if (!(KINDS as readonly string[]).includes(raw.envelope.kind as string)) {
@@ -1048,7 +1076,18 @@ export function checkSendSemantics(raw: RawSendRequest): ValidateSendResult {
     }
     return checkFail(ErrorCode.UNKNOWN_KIND, 'malformed_for_kind');
   }
-  return { ok: true, value: full.data };
+
+  // ── Step 7: best-effort DLP secret scan over body + artifact strings (SECRET_DETECTED).
+  const v = full.data;
+  const scanTargets: string[] = [v.envelope.body];
+  for (const a of v.envelope.artifacts ?? []) {
+    scanTargets.push(a.repo);
+    if (a.type === 'git_commit' || a.type === 'git_branch') scanTargets.push(a.ref, a.sha);
+    if (a.type === 'pull_request') scanTargets.push(a.url);
+  }
+  if (scanTargets.some(scanSecret)) return checkFail(ErrorCode.SECRET_DETECTED);
+
+  return { ok: true, value: v };
 }
 
 /**

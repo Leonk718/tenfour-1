@@ -115,9 +115,11 @@ model needs is carried in tool responses, never assumed remembered (compaction-p
   the overbroad rule breaking legitimate work). The broker-side echo scan matches
   framing + nonce patterns only, and docs paraphrase rather than quote the framing
   (dogfooding false-positive fix).
-- **Push-before-send**: the adapter runs `git ls-remote` verification on sha-pinned
-  artifacts before `task`/`result` sends — an unpushed sha would burn a protocol round
-  on a confusing peer-side error (critic catch).
+- **Push-before-send**: before `task`/`result` sends, the adapter verifies each
+  sha-pinned artifact is an ancestor of a configured remote-tracking ref via the OFFLINE
+  `git merge-base --is-ancestor <sha> <remote-ref>` check (R5 — no network, no
+  `ls-remote`); an unpushed sha is caught locally ("push first, then send") rather than
+  burning a protocol round on a confusing peer-side error.
 - **Wrong-repo injection**: tasks carry a repo slug; injection in a non-matching cwd
   says "this task targets <repo> — tell your human to open a session there," and
   re-delivery is bounded by the journal, not infinite.

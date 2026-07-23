@@ -148,14 +148,14 @@ Files touched: everything in `init` base, plus `credentials.json`, `config.json`
 | Purpose | R8 structured consent gesture — the human-side path to `accepted` |
 | Requires | Network; `credentials.json` |
 
-Behavior: fetch thread → verify state `offered` and caller is the recipient → send
-`kind:accepted` with `consent: {token, granted_via: "cli_accept"}` (adapter-minted
+Behavior: fetch thread → verify caller is the recipient and status is `offered` **or** `frozen` with `resume_state:offered` → send
+`kind:accepted` with `consent: {token, granted_via: "cli_accept"}` and, when the thread was frozen, `unfreeze: true` (adapter-minted
 `client_id`, `parent_id` = current head — WIRE §7.1) → broker records consent
 `{granted_via, granted_at, scope: "whole_thread"}` (R9; `protocol.ts
 ConsentRecordSchema`) → print confirmation including the round budget
 (`round 1/10`).
 
-| Errors → exit 1 | `TENFOUR/THREAD_NOT_FOUND`, `NOT_THREAD_PARTY`, `TERMINAL_THREAD`, `THREAD_FROZEN`, `CONSENT_REQUIRED` (stale token), `AUTH_REVOKED` |
+| Errors → exit 1 | `TENFOUR/THREAD_NOT_FOUND`, `NOT_THREAD_PARTY`, `TERMINAL_THREAD`, `CONSENT_REQUIRED` (stale token), `AUTH_REVOKED`; `THREAD_FROZEN` only when frozen with `resume_state ≠ offered` (then use `tenfour approve`) |
 | --- | --- |
 | `STALE_HEAD` handling | **DECIDED HERE:** the CLI refetches the head and retries the send exactly once; a second `STALE_HEAD` is surfaced as-is (exit 1). Retry uses a fresh `client_id` since content (parent) changed — consistent with R11 hashing |
 
@@ -166,12 +166,12 @@ local file edits.
 
 | Aspect | Specification |
 |---|---|
-| Synopsis | `tenfour approve <thread-id> --kind <kind> [--body <text>] [--artifact <type>:<repo>@<sha>:<ref> …]` (thread-id: ULID or ≥ 8-char unambiguous prefix, as `accept`). `--kind` is REQUIRED — unfreeze rides a real message, so the resumed message content is explicit; `to`, `thread_id`, and `parent_id` are derived from the thread head, never passed. The chosen kind MUST be legal in the thread's `resume_state` |
+| Synopsis | `tenfour approve <thread-id> --kind <kind> [--body <text>] [--artifact git:<repo>@<sha>:<ref>] [--pr <repo>#<number>:<url>] …` (thread-id: ULID or ≥ 8-char prefix, as `accept`). `--kind` is REQUIRED, MUST be legal in the thread's `resume_state`, and **MUST NOT be `accepted`** — a frozen thread whose `resume_state` is `offered` is accepted (and unfrozen in the same send) via `tenfour accept`, which carries the consent block; `approve` therefore never sends `accepted` and never needs a consent source. `to`/`thread_id`/`parent_id` derive from the head. `--artifact` supplies a git_commit/git_branch; `--pr` supplies a pull_request artifact |
 | Purpose | The unfreeze gesture (STATE §6.2; WIRE §7.1.3, B2): unfreeze rides `send` — this command issues a `send` carrying `unfreeze: true` for a `frozen` thread. No consent record, no endpoint, no MCP tool |
 | Requires | Network; `credentials.json` |
 | Operator | **Either** human party (J7: "humans decide") |
 | Behavior | Fetch thread → verify state `frozen` → print the freeze reason, `resume_state`, and round budget **before** sending → issue a `send` with `unfreeze: true` carrying the `--kind`/`--body`/`--artifact` message (`to`/`thread_id`/`parent_id` derived from the head). The broker atomically restores the thread to `resume_state`, resets the round counter (`rounds_used := 0`, `last_substantive_sender := null`), applies the message iff it is legal in `resume_state` (else rejects WITHOUT resuming — a typo does not burn the gesture), and stamps the persisted message `unfroze: true` |
-| Errors → exit 1 | `TENFOUR/THREAD_NOT_FOUND`, `NOT_THREAD_PARTY`, `TERMINAL_THREAD`; a message illegal in `resume_state` → that cell's error (the thread stays frozen). Approving a non-frozen thread is a success-shaped no-op ("thread is not frozen — nothing to approve", exit 0) |
+| Errors → exit 1 | `TENFOUR/THREAD_NOT_FOUND`, `NOT_THREAD_PARTY`, `TERMINAL_THREAD`; `--kind accepted` → local error before any send ("use `tenfour accept`, which accepts and unfreezes in one step"); a message illegal in `resume_state` → that cell's error (the thread stays frozen). Approving a non-frozen thread is a success-shaped no-op ("thread is not frozen — nothing to approve", exit 0) |
 | Side effects | One broker `send` with `unfreeze: true`; local outbound ops entry (R11) |
 
 ### 1.6 `tenfour token`
