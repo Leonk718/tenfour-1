@@ -2,9 +2,17 @@
   "name": "tenfour",
   "private": true,
   "version": "0.0.0",
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "license": "MIT",
   "dependencies": {
     "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "convex-test": "^0.0.54",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
   }
 }
