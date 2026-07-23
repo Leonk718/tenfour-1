@@ -1,0 +1,9 @@
+{
+  "name": "@tenfour/broker",
+  "private": true,
+  "type": "module",
+  "description": "tenfour broker — Convex implementation of the tenfour/1 relay protocol",
+  "dependencies": {
+    "convex": "^1.17.0"
+  }
+}
