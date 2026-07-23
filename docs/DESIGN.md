@@ -197,7 +197,7 @@ stated), and OS-level sandboxing of the agent (Claude Code permission rules are
 3. `{kind: result, artifacts:[branch@sha, pull_request#42]}` — screenshots live in the
    PR description; the broker carries references.
 4. Brian's Claude verifies 1:1 against the checklist in the task body →
-   `{kind: done}` or `{kind: change_request}` (≤ 6 rounds → `tenfour/system` freezes +
+   `{kind: done}` or `{kind: change_request}` (≤ 10 rounds → `tenfour/system` freezes +
    `needs_human` to both).
 5. **A human merges. Always.**
 
@@ -228,8 +228,8 @@ seq; system principal; repo allowlist + never-auto-fetch; honest security labeli
 cross-platform Node-only scripts; broker interface with Convex as v1 impl.
 
 **Open for founders:** name; outbound-task friction dial (prompt forever vs allowlist
-after trust period); max_rounds default (6); symmetric tasks day one (recommended yes);
-self-host timing (v1.1 with CI proof).
+after trust period); symmetric tasks day one (recommended yes);
+self-host timing (v1.1 with CI proof). (max_rounds default DECIDED: 10 — §12.)
 
 ## 10. v2 parking lot
 

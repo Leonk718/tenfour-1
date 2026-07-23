@@ -3,5 +3,8 @@
   "private": true,
   "version": "0.0.0",
   "workspaces": ["packages/*"],
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "zod": "^4.4.3"
+  }
 }

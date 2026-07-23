@@ -1,0 +1,10 @@
+{
+  "name": "tenfour",
+  "version": "0.0.1",
+  "description": "10-4 between your Claudes - a durable, human-gated task relay between two Claude Code sessions. Placeholder release; v1 in active development.",
+  "license": "MIT",
+  "bin": { "tenfour": "./bin/tenfour.mjs" },
+  "files": ["bin", "README.md"],
+  "keywords": ["claude", "claude-code", "agent", "relay", "mcp"],
+  "engines": { "node": ">=20" }
+}

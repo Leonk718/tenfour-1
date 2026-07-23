@@ -1,0 +1,23 @@
+{
+  "lockfileVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "tenfour",
+      "dependencies": {
+        "zod": "^4.4.3",
+      },
+    },
+    "packages/cli": {
+      "name": "tenfour",
+      "version": "0.0.1",
+      "bin": {
+        "tenfour": "./bin/tenfour.mjs",
+      },
+    },
+  },
+  "packages": {
+    "tenfour": ["tenfour@workspace:packages/cli"],
+
+    "zod": ["zod@4.4.3", "", {}, "sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ=="],
+  }
+}

@@ -12,7 +12,7 @@ The mailbox metaphor governs every string: tenfour is a mailbox, not a doorbell.
 
 | # | Journey | Personas | Kind sequence | v1 status |
 |---|---|---|---|---|
-| J0 | First contact: install → pair → hello | any pair, macOS↔Windows | (setup; `hello` carve-out thread) | core |
+| J0 | First contact: install → pair → hello | any pair, macOS↔Windows | (setup; celebration rides `diag.ping` — §8 R6, no thread carve-out) | core |
 | J1 | Design→dev handoff (the canonical flow) | brian/design → jonathan/web | task → accepted → result → change_request* → done | **core, README golden path** |
 | J2 | Reverse ask: dev needs a missing state/asset | jonathan/web → brian/design | (a) mid-task blocking `question` in-thread, then `tenfour_wait`; (b) fresh small `task` back | core |
 | J3 | Quick question, no formal task | either | question → answer (micro-thread; `answer` closes it — ruled) | core |
@@ -27,7 +27,7 @@ The mailbox metaphor governs every string: tenfour is a mailbox, not a doorbell.
 - *Human control on both ends* → outbound task prompts sender's human; inbound work
   starts on receiver's "go"; **consent scope RULED: "go" covers the whole thread**
   (subsequent change_request rounds run under it; re-prompt only after an unfreeze).
-  The round budget is shown to humans in every digest ("round 3/6") so the cap is
+  The round budget is shown to humans in every digest ("round 3/10") so the cap is
   never a surprise (critic fix).
 - *No loops* → broker round caps/rate ceilings (DESIGN §4.4), plus strings engineered
   so the model never wants to send thanks-noise (below).
@@ -36,8 +36,8 @@ The mailbox metaphor governs every string: tenfour is a mailbox, not a doorbell.
 
 ## 3. Setup journey (asymmetric — only one founder ever touches Convex)
 
-- **Distribution**: `npm install -g <pkg>` (name TBD; "tenfour" is taken on npm — decide
-  scoped `@scope/tenfour` vs distinct name BEFORE any docs are written). Broker source
+- **Distribution**: `npm install -g <pkg>` (name: npm re-checked July 23 — tenfour /
+  redphone / crossband all AVAILABLE, DESIGN §12; final pick pending founder). Broker source
   ships inside the package; `tenfour init --create-broker` runs the Convex CLI against a
   bundled staging dir. **Jonathan needs no Convex account, ever.**
 - **Owner flow (Brian, macOS, ~6 min)**: `init --create-broker` → convex login/deploy →
@@ -72,10 +72,11 @@ The mailbox metaphor governs every string: tenfour is a mailbox, not a doorbell.
   `C:\Users\Jonathan Smith` fails loudly here instead of becoming silent hook death).
   Toast check wording is honest: "test toast dispatched (if you didn't see it, check
   Focus Assist)". CI-friendly exit codes; `--fix` where safe.
-- **First round-trip**: `tenfour hello` — meet-in-the-middle CLI (neither founder needs
-  a Claude session open), riding a broker-side `purpose:"hello"` thread carve-out
-  (round-cap exempt, auto-pruned 24h; **confirmed in v1 scope** — the celebration
-  moment is an adoption feature). Output ends with exactly what to do next on each side.
+- **First round-trip**: the celebration moment rides `diag.ping` (§8 R6 — superseding
+  the earlier `purpose:"hello"` thread carve-out): `tenfour join`'s final step pings
+  with `mark:"hello"`; the owner side sees it via `tenfour status` / `tenfour doctor`.
+  No dedicated `hello` command, no thread, no protocol carve-out — same adoption-feature
+  UX. Output ends with exactly what to do next on each side.
 
 ## 4. The agent experience (the strings ARE the product)
 
@@ -158,12 +159,13 @@ frozen at launch; package semver independent; compat policy stated.
 
 ## 7. Open decisions for the founders (consolidated, final list)
 
-1. **Project + npm name** (blocking all docs; "tenfour" taken).
-2. Jonathan's actual environment (native vs WSL) — docs cover both, demo leads with his real one.
+1. **Project + npm name** (blocking all docs; tenfour/redphone/crossband all available per DESIGN §12 — final pick pending).
+2. Jonathan's actual environment (native vs WSL) — DECIDED: native Windows (DESIGN §12); docs cover both.
 3. Gate rules scope: user-scope (friction everywhere) vs per-project (weaker default) — default shipped: opt-in user-scope with honest prompt.
-4. `max_rounds` default 6 — confirm.
-5. Symmetric tasks day one — recommended yes (J2-b depends on it).
-6. Launch post: include the iMessage duct-tape origin story/screenshots? (Great Reddit material; exposes internal workflow — founder call.)
+4. Symmetric tasks day one — recommended yes (J2-b depends on it).
+5. Launch post: include the iMessage duct-tape origin story/screenshots? — DECIDED: no iMessage origin story (DESIGN §12).
+
+(`max_rounds` default is DECIDED: 10, clamp 1..12 — DESIGN §12; removed from this list.)
 
 ## 8. v0.96 corrections (post Codex round-2)
 
