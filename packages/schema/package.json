@@ -1,0 +1,9 @@
+{
+  "name": "@tenfour/schema",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": { ".": "./src/protocol.ts", "./config": "./src/config.ts" },
+  "dependencies": { "zod": "^4.4.3" }
+}
