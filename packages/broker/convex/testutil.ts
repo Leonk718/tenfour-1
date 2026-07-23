@@ -102,7 +102,10 @@ export async function seedAdminKey(t: T): Promise<string> {
   const key = 'tfadmin_' + 'A'.repeat(43);
   const hash = await sha256Hex(key);
   await t.run(async (ctx) => {
-    await ctx.db.insert('config', { admin_key_sha256: hash });
+    await ctx.db.insert('config', {
+      admin_key_sha256: hash,
+      broker_url: 'https://test-broker.convex.cloud',
+    });
   });
   return key;
 }

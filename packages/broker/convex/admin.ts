@@ -20,7 +20,7 @@ import {
   checksum4,
   constantTimeEqual,
 } from './lib/ids.ts';
-import { berr, BROKER_URL, activePairFor } from './lib/core.ts';
+import { berr, activePairFor } from './lib/core.ts';
 
 export const issueInvite = mutation({
   args: { request: v.any() },
@@ -40,6 +40,8 @@ export const issueInvite = mutation({
     if (!constantTimeEqual(presentedHash, config.admin_key_sha256)) {
       return berr('AUTH_FAILED');
     }
+    // A broker with no configured URL cannot mint reachable invite codes (setup incomplete).
+    if (!config.broker_url) return berr('AUTH_FAILED');
     if (!parsed.success) return berr('AUTH_FAILED');
     const { agent, ttl_s, max_rounds, repo_allowlist, note: _note } = parsed.data;
 
@@ -121,7 +123,7 @@ export const issueInvite = mutation({
     // Build the code — payload keys sorted, no whitespace (AUTH §6.2).
     const payloadObj = {
       agent,
-      broker_url: BROKER_URL,
+      broker_url: config.broker_url,
       exp,
       invite_id: inviteId,
       secret,

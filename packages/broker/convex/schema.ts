@@ -173,5 +173,6 @@ export default defineSchema({
   // Broker control-plane config (admin key hash). Singleton.
   config: defineTable({
     admin_key_sha256: v.string(),
+    broker_url: v.optional(v.string()), // this deployment's own URL, embedded in invite codes
   }),
 });
