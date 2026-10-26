@@ -17,6 +17,7 @@ import {
   DIGEST_LINE,
   DIGEST_OVERFLOW_LINE,
   STOP_HOOK_MESSAGE,
+  STOP_HOOK_ACK_SUFFIX,
   USER_PROMPT_SUBMIT_PREFIX,
   POST_TOOL_USE_MIDTURN_PREAMBLE,
 } from '../strings.ts';
@@ -28,6 +29,8 @@ export interface ItemView {
   thread: InboxThreadInfo;
   prior_attempts?: number;
   redelivery?: boolean;
+  /** Delivery attempt to ack; null/absent when the broker gave none. */
+  attempt_id?: string | null;
 }
 
 export interface SessionStartOutput {
@@ -84,6 +87,7 @@ export function wrapItem(item: ItemView, now: number = Date.now()): string {
     redelivery: item.redelivery ?? (item.prior_attempts ?? 0) > 0,
     repo: item.message.repo ?? undefined,
     consent_token: item.message.consent_token ?? undefined,
+    ack: item.attempt_id ? { message_id: item.message.id, attempt_id: item.attempt_id } : undefined,
   });
 }
 
@@ -175,11 +179,19 @@ export function buildStopOutput(
       from: a.message.from,
       thread_short: shortThreadId(a.message.thread_id),
       summary: summarize(a.message.body),
+      ack: a.attempt_id
+        ? fmt(STOP_HOOK_ACK_SUFFIX, { message_id: a.message.id, attempt_id: a.attempt_id })
+        : '',
     }),
   };
 }
 
 /** Convert an InboxItem (wire) to the builder's ItemView. */
 export function itemViewOf(item: InboxItem): ItemView {
-  return { message: item.message, thread: item.thread, prior_attempts: item.prior_attempts };
+  return {
+    message: item.message,
+    thread: item.thread,
+    prior_attempts: item.prior_attempts,
+    attempt_id: item.attempt_id,
+  };
 }

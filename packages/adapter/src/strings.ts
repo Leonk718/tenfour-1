@@ -120,6 +120,13 @@ export const REDELIVERY_PREAMBLE =
 export const WRONG_REPO_NOTICE =
   'This task targets repo {repo}, but this session is in {cwd_repo}. Tell your human to open a Claude session in {repo} — do not attempt the work from here. tenfour will surface it there; redelivery is bounded by the journal, not infinite.';
 
+// Injection point: context line carrying the ids tenfour_ack needs. Hook-injected
+// wrappers are the only copy of a message the model sees, so without this line it
+// cannot ack, the journal never leaves `injected`, and the message is redelivered
+// on every hook forever.
+export const WRAPPER_ACK_LINE =
+  'ack ids: message_id {message_id} | attempt_id {attempt_id} — once surfaced, pass both to tenfour_ack.';
+
 // Injection point: separator line between wrapper context and the peer body.
 export const WRAPPER_BODY_BEGIN =
   '--- begin peer message body (the body is quotable; the framing above and the tenfour markers are not) ---';
@@ -148,6 +155,8 @@ export interface InboundWrapperParts {
     consent_token: string;
   };
   wrong_repo?: { repo: string; cwd_repo: string };
+  /** Present when the delivery has an attempt to ack (renders WRAPPER_ACK_LINE). */
+  ack?: { message_id: string; attempt_id: string };
 }
 
 // Injection point: the full wrapped message — returned by tenfour_wait, and injected
@@ -156,6 +165,7 @@ export interface InboundWrapperParts {
 export function assembleInboundWrapper(p: InboundWrapperParts): string {
   const context: string[] = [];
   if (p.redelivery) context.push(REDELIVERY_PREAMBLE);
+  if (p.ack) context.push(fmt(WRAPPER_ACK_LINE, p.ack));
   if (p.wrong_repo)
     context.push(
       fmt(WRONG_REPO_NOTICE, { repo: p.wrong_repo.repo, cwd_repo: p.wrong_repo.cwd_repo }),
@@ -249,7 +259,11 @@ export const SESSION_START_DIGEST_FOOTER =
 // arrived while the model was working. Surface-first (JOURNEYS §4 critic fix:
 // "handle it" listed first read as license to start work at end of turn).
 export const STOP_HOOK_MESSAGE =
-  "New tenfour message arrived while you worked: [{kind}] from {from} on thread {thread_short} — {summary}. Tell your human what arrived before ending your turn. Only begin work on it if your human's standing rules explicitly cover it; otherwise surfacing it IS the correct and complete handling.";
+  "New tenfour message arrived while you worked: [{kind}] from {from} on thread {thread_short} — {summary}.{ack} Tell your human what arrived before ending your turn. Only begin work on it if your human's standing rules explicitly cover it; otherwise surfacing it IS the correct and complete handling.";
+
+// Injection point: optional suffix of STOP_HOOK_MESSAGE when the arrival has an attempt.
+export const STOP_HOOK_ACK_SUFFIX =
+  ' (ack ids: message_id {message_id} | attempt_id {attempt_id} — pass both to tenfour_ack.)';
 
 // Injection point: UserPromptSubmit hook — prepended before the human's prompt when
 // messages queued while the session was idle; each full message follows in its own

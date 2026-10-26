@@ -112,3 +112,33 @@ describe('Stop', () => {
     expect(buildStopOutput({}, [])).toBeNull();
   });
 });
+
+// Regression: hook-injected wrappers must carry the ids tenfour_ack requires, or the
+// model can never ack and the journal redelivers the message on every hook forever.
+describe('ack ids', () => {
+  const ATTEMPT = '01J1PAVH5N40E3D8QT2W9YRKM4';
+  const withAttempt = (): ItemView => ({ ...item(), attempt_id: ATTEMPT });
+
+  it('renders message_id and attempt_id inside every injected wrapper', () => {
+    const ctx = buildUserPromptSubmitOutput([withAttempt()])!.hookSpecificOutput.additionalContext;
+    expect(ctx).toContain(`message_id ${ULID}`);
+    expect(ctx).toContain(`attempt_id ${ATTEMPT}`);
+    expect(ctx.indexOf('ack ids:')).toBeLessThan(ctx.indexOf('--- begin peer message body'));
+    for (const out of [
+      buildSessionStartOutput([withAttempt()])!.hookSpecificOutput.additionalContext,
+      buildPostToolUseOutput([withAttempt()])!.hookSpecificOutput.additionalContext,
+    ]) {
+      expect(out).toContain(`attempt_id ${ATTEMPT}`);
+    }
+  });
+  it('includes the ids in the Stop block reason', () => {
+    const out = buildStopOutput({ stop_hook_active: false }, [withAttempt()])!;
+    expect(out.reason).toContain(`message_id ${ULID}`);
+    expect(out.reason).toContain(`attempt_id ${ATTEMPT}`);
+  });
+  it('omits the ack line when there is no attempt', () => {
+    const ctx = buildUserPromptSubmitOutput([item()])!.hookSpecificOutput.additionalContext;
+    expect(ctx).not.toContain('ack ids:');
+    expect(buildStopOutput({}, [item()])!.reason).not.toContain('ack ids');
+  });
+});
